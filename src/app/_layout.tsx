@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/context/AuthContext';
+import { CartProvider } from '@/context/CartContext';
 import { ModeProvider } from '@/context/ModeContext';
 
 export default function RootLayout() {
@@ -12,14 +13,16 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ModeProvider>
           <AuthProvider>
-            <StatusBar style="auto" />
-            <Stack>
-              <Stack.Screen name="index" options={{ title: '카트 연결' }} />
-              <Stack.Screen name="cart" options={{ title: '내 장바구니' }} />
-              <Stack.Screen name="checkout" options={{ title: '결제 확인' }} />
-              <Stack.Screen name="complete" options={{ title: '결제 완료' }} />
-              <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
-            </Stack>
+            <CartProvider>
+              <StatusBar style="auto" />
+              <Stack>
+                <Stack.Screen name="index" options={{ title: '카트 연결' }} />
+                <Stack.Screen name="cart" options={{ title: '내 장바구니' }} />
+                <Stack.Screen name="checkout" options={{ title: '결제 확인' }} />
+                <Stack.Screen name="complete" options={{ title: '결제 완료' }} />
+                <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
+              </Stack>
+            </CartProvider>
           </AuthProvider>
         </ModeProvider>
       </SafeAreaProvider>

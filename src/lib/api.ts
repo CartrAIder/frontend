@@ -54,3 +54,30 @@ export async function connectCart(code: string): Promise<ConnectCartResult> {
     body: JSON.stringify({ code: trimmed }),
   });
 }
+
+/**
+ * 장바구니 상품 수량을 변경한다.
+ * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ */
+export async function updateItemQty(itemId: string, qty: number): Promise<void> {
+  if (USE_MOCK) {
+    await delay(300);
+    return;
+  }
+  await apiFetch<void>(`/api/carts/items/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ qty }),
+  });
+}
+
+/**
+ * 장바구니 상품을 삭제한다.
+ * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ */
+export async function removeCartItem(itemId: string): Promise<void> {
+  if (USE_MOCK) {
+    await delay(300);
+    return;
+  }
+  await apiFetch<void>(`/api/carts/items/${itemId}`, { method: 'DELETE' });
+}
