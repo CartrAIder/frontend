@@ -81,3 +81,24 @@ export async function removeCartItem(itemId: string): Promise<void> {
   }
   await apiFetch<void>(`/api/carts/items/${itemId}`, { method: 'DELETE' });
 }
+
+export interface PaymentResult {
+  receiptId: string;
+}
+
+/**
+ * 결제를 요청한다. 실제 PG 연동은 범위 밖 — "결제 성공"을 가정하고 영수증만 발급한다.
+ * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ */
+export async function requestPayment(cartId: string, amount: number): Promise<PaymentResult> {
+  if (USE_MOCK) {
+    await delay(700);
+    const year = new Date().getFullYear();
+    const seq = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    return { receiptId: `${year}-${cartId}-${seq}` };
+  }
+  return apiFetch<PaymentResult>('/api/carts/payment', {
+    method: 'POST',
+    body: JSON.stringify({ cartId, amount }),
+  });
+}
