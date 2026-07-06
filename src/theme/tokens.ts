@@ -10,6 +10,20 @@
 
 export type Mode = 'normal' | 'senior';
 
+export interface ModeColors {
+  background: string;
+  surface: string;
+  border: string;
+  text: string;
+  textMuted: string;
+  primary: string;
+  primaryText: string;
+  success: string;
+  successSurface: string;
+  warningSurface: string;
+  warningText: string;
+}
+
 export interface ModeTokens {
   /** 본문 기본 글자 크기 */
   fontBody: number;
@@ -25,6 +39,8 @@ export interface ModeTokens {
   spacing: number;
   /** 음성 안내 제공 여부 (결제 완료·길 안내) */
   voiceGuide: boolean;
+  /** 모드별 색상 팔레트 (senior는 WCAG AA 4.5:1 이상 고대비) */
+  colors: ModeColors;
 }
 
 export const tokens: Record<Mode, ModeTokens> = {
@@ -36,6 +52,19 @@ export const tokens: Record<Mode, ModeTokens> = {
     minTouch: 44,
     spacing: 12,
     voiceGuide: false,
+    colors: {
+      background: '#FFFFFF',
+      surface: '#F3F4F6',
+      border: '#E5E7EB',
+      text: '#111827',
+      textMuted: '#6B7280',
+      primary: '#2563EB',
+      primaryText: '#FFFFFF',
+      success: '#16A34A',
+      successSurface: '#DCFCE7',
+      warningSurface: '#FEF3C7',
+      warningText: '#92400E',
+    },
   },
   senior: {
     fontBody: 18,
@@ -45,16 +74,18 @@ export const tokens: Record<Mode, ModeTokens> = {
     minTouch: 56,
     spacing: 16,
     voiceGuide: true,
+    colors: {
+      background: '#FFFFFF',
+      surface: '#F5F5F5',
+      border: '#4B5563',
+      text: '#000000',
+      textMuted: '#374151',
+      primary: '#1D4ED8',
+      primaryText: '#FFFFFF',
+      success: '#15803D',
+      successSurface: '#BBF7D0',
+      warningSurface: '#FDE68A',
+      warningText: '#78350F',
+    },
   },
-};
-
-/** 공통 색상 — 모드 무관 (대비 조정은 Sprint 1). */
-export const colors = {
-  primary: '#2563EB',
-  success: '#16A34A',
-  text: '#111827',
-  textMuted: '#6B7280',
-  background: '#FFFFFF',
-  surface: '#F3F4F6',
-  border: '#E5E7EB',
 };
