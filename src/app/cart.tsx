@@ -40,14 +40,26 @@ export default function CartScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       edges={['bottom']}
     >
-      <View
-        style={[
-          styles.statusBadge,
-          { backgroundColor: colors.successSurface, padding: theme.spacing / 1.5 },
-        ]}
-      >
-        <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-        <Text style={{ fontSize: theme.fontBody - 2, color: colors.text }}>{statusText}</Text>
+      <View style={styles.headerRow}>
+        <View
+          style={[
+            styles.statusBadge,
+            { backgroundColor: colors.successSurface, padding: theme.spacing / 1.5 },
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
+          <Text style={{ fontSize: theme.fontBody - 2, color: colors.text }}>{statusText}</Text>
+        </View>
+        <Pressable
+          onPress={() => router.push('/navigate')}
+          style={[
+            styles.mapButton,
+            { borderColor: colors.border, minHeight: theme.minTouch },
+          ]}
+          accessibilityLabel="매장 길 안내 열기"
+        >
+          <Text style={{ fontSize: theme.fontBody - 3, color: colors.primary }}>🧭 매장 안내</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -171,14 +183,22 @@ export default function CartScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
   statusBadge: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     borderRadius: 10,
-    marginTop: 12,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
+  mapButton: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   list: { flex: 1 },
   itemRow: {
     flexDirection: 'row',
