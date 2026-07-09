@@ -30,6 +30,15 @@ export interface CartStream {
   close: () => void;
 }
 
+export interface CartStreamOptions {
+  /**
+   * mock 스크립트를 이 인덱스부터 재생한다. 앱을 나갔다 돌아왔을 때
+   * 이미 담긴 상품을 다시 스캔하지 않도록(중복 카운트 방지) 사용한다.
+   * 실 서버 분기에서는 서버가 현재 카트 상태를 재생하므로 무시된다.
+   */
+  fromIndex?: number;
+}
+
 /** 상품이 하나씩 순차로 "인식"되는 것처럼 흉내내는 시연용 스캔 시나리오. */
 const MOCK_SCAN_SCRIPT: { productId: string; qty: number }[] = [
   { productId: 'milk-seoul-1l', qty: 1 },
@@ -41,7 +50,7 @@ const MOCK_SCAN_SCRIPT: { productId: string; qty: number }[] = [
   { productId: 'water-samdasu-2l', qty: 1 },
 ];
 
-function connectMockCartStream(handlers: CartStreamHandlers): CartStream {
+function connectMockCartStream(handlers: CartStreamHandlers, fromIndex: number): CartStream {
   const timers: ReturnType<typeof setTimeout>[] = [];
   let cancelled = false;
 
@@ -51,7 +60,8 @@ function connectMockCartStream(handlers: CartStreamHandlers): CartStream {
     }, 300),
   );
 
-  MOCK_SCAN_SCRIPT.forEach((scan, index) => {
+  // 이미 담긴 상품(fromIndex 이전)은 건너뛰고 남은 스캔만 순차로 재생한다.
+  MOCK_SCAN_SCRIPT.slice(fromIndex).forEach((scan, offset) => {
     const product = findProduct(scan.productId);
     if (!product) return;
     timers.push(
@@ -65,7 +75,7 @@ function connectMockCartStream(handlers: CartStreamHandlers): CartStream {
             qty: scan.qty,
           });
         },
-        900 + index * 900,
+        900 + offset * 900,
       ),
     );
   });
@@ -98,6 +108,12 @@ function connectRealCartStream(cartId: string, handlers: CartStreamHandlers): Ca
   };
 }
 
-export function connectCartStream(cartId: string, handlers: CartStreamHandlers): CartStream {
-  return USE_MOCK ? connectMockCartStream(handlers) : connectRealCartStream(cartId, handlers);
+export function connectCartStream(
+  cartId: string,
+  handlers: CartStreamHandlers,
+  options: CartStreamOptions = {},
+): CartStream {
+  return USE_MOCK
+    ? connectMockCartStream(handlers, options.fromIndex ?? 0)
+    : connectRealCartStream(cartId, handlers);
 }

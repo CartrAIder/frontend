@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
+import { CartSessionProvider } from '@/context/CartSessionContext';
 import { ModeProvider } from '@/context/ModeContext';
 
 export default function RootLayout() {
@@ -13,16 +14,26 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ModeProvider>
           <AuthProvider>
-            <CartProvider>
-              <StatusBar style="auto" />
-              <Stack>
-                <Stack.Screen name="index" options={{ title: '카트 연결' }} />
-                <Stack.Screen name="cart" options={{ title: '내 장바구니' }} />
-                <Stack.Screen name="checkout" options={{ title: '결제 확인' }} />
-                <Stack.Screen name="complete" options={{ title: '결제 완료' }} />
-                <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
-              </Stack>
-            </CartProvider>
+            <CartSessionProvider>
+              <CartProvider>
+                <StatusBar style="auto" />
+                <Stack>
+                  <Stack.Screen name="index" options={{ headerShown: false }} />
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen name="signup" options={{ headerShown: false }} />
+                  <Stack.Screen name="home" options={{ headerShown: false }} />
+                  <Stack.Screen name="mypage" options={{ title: '마이페이지' }} />
+                  <Stack.Screen name="connect" options={{ title: '카트 연결' }} />
+                  <Stack.Screen name="cart" options={{ title: '내 장바구니' }} />
+                  <Stack.Screen name="checkout" options={{ title: '결제 확인' }} />
+                  <Stack.Screen
+                    name="complete"
+                    options={{ title: '결제 완료', headerBackVisible: false, gestureEnabled: false }}
+                  />
+                  <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
+                </Stack>
+              </CartProvider>
+            </CartSessionProvider>
           </AuthProvider>
         </ModeProvider>
       </SafeAreaProvider>

@@ -1,27 +1,48 @@
 /**
  * 디자인 토큰 — 일반인(normal) / 노약자(senior) 두 벌.
  *
- * 화면 컴포넌트는 절대 폰트 크기·색상을 하드코딩하지 않는다.
+ * 화면 컴포넌트는 절대 폰트 크기·색상·그림자·radius를 하드코딩하지 않는다.
  * 반드시 useTheme()로 현재 모드의 토큰을 읽어 쓴다.
  *
- * NOTE(Sprint 1): 색상 팔레트·간격 스케일은 Sprint 1에서 목업 기준으로 확정한다.
- * 여기서는 Sprint 0 골격만 정의한다.
+ * 비주얼 방향: "Toss Blue" — 밝은 회색 배경 위에 흰 카드, 은은한 그림자,
+ * 넉넉한 여백, 파랑(#2563EB) 브랜드. senior는 그림자 대신 강한 테두리·고대비로
+ * 같은 레이아웃을 접근성 있게 표현한다.
  */
 
 export type Mode = 'normal' | 'senior';
 
+export interface ShadowToken {
+  shadowColor: string;
+  shadowOpacity: number;
+  shadowRadius: number;
+  shadowOffset: { width: number; height: number };
+  /** Android 그림자. */
+  elevation: number;
+}
+
 export interface ModeColors {
+  /** 페이지 배경 */
   background: string;
+  /** 카드/시트 배경 (흰색) */
+  card: string;
+  /** 입력창·칩 등 옅은 채움 배경 */
   surface: string;
+  /** 구분선·입력창 테두리 */
   border: string;
+  /** 카드 외곽선 (normal은 거의 안 보이고 그림자로, senior는 강한 대비) */
+  cardBorder: string;
   text: string;
   textMuted: string;
   primary: string;
   primaryText: string;
+  /** 파랑 틴트 (칩·강조 배경) */
+  primarySurface: string;
   success: string;
   successSurface: string;
   warningSurface: string;
   warningText: string;
+  /** 삭제·경고 액션 강조색 */
+  danger: string;
 }
 
 export interface ModeTokens {
@@ -33,10 +54,20 @@ export interface ModeTokens {
   fontAmount: number;
   /** 제목 글자 크기 */
   fontTitle: number;
-  /** 터치 요소 최소 높이 */
+  /** 히어로 숫자·대형 표시용 글자 크기 */
+  fontDisplay: number;
+  /** 터치 요소 최소 높이 (접근성 계약: 44 / 56) */
   minTouch: number;
+  /** 주요 CTA 버튼 높이 */
+  ctaHeight: number;
   /** 기본 여백 단위 */
   spacing: number;
+  /** 카드 등 큰 모서리 radius */
+  radius: number;
+  /** 입력창·칩 등 작은 모서리 radius */
+  radiusSm: number;
+  /** 카드 그림자 */
+  shadowCard: ShadowToken;
   /** 음성 안내 제공 여부 (결제 완료·길 안내) */
   voiceGuide: boolean;
   /** 모드별 색상 팔레트 (senior는 WCAG AA 4.5:1 이상 고대비) */
@@ -49,21 +80,36 @@ export const tokens: Record<Mode, ModeTokens> = {
     fontButton: 18,
     fontAmount: 20,
     fontTitle: 24,
+    fontDisplay: 30,
     minTouch: 44,
+    ctaHeight: 54,
     spacing: 12,
+    radius: 16,
+    radiusSm: 10,
+    shadowCard: {
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.06,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 3,
+    },
     voiceGuide: false,
     colors: {
-      background: '#FFFFFF',
-      surface: '#F3F4F6',
-      border: '#E5E7EB',
+      background: '#F4F6FA',
+      card: '#FFFFFF',
+      surface: '#F1F3F7',
+      border: '#E6E9EF',
+      cardBorder: '#EEF1F6',
       text: '#111827',
       textMuted: '#6B7280',
       primary: '#2563EB',
       primaryText: '#FFFFFF',
+      primarySurface: '#EAF1FE',
       success: '#16A34A',
       successSurface: '#DCFCE7',
       warningSurface: '#FEF3C7',
       warningText: '#92400E',
+      danger: '#DC2626',
     },
   },
   senior: {
@@ -71,21 +117,36 @@ export const tokens: Record<Mode, ModeTokens> = {
     fontButton: 24,
     fontAmount: 30,
     fontTitle: 30,
+    fontDisplay: 38,
     minTouch: 56,
+    ctaHeight: 64,
     spacing: 16,
+    radius: 18,
+    radiusSm: 12,
+    shadowCard: {
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 2,
+    },
     voiceGuide: true,
     colors: {
       background: '#FFFFFF',
-      surface: '#F5F5F5',
+      card: '#FFFFFF',
+      surface: '#F0F2F5',
       border: '#4B5563',
+      cardBorder: '#4B5563',
       text: '#000000',
       textMuted: '#374151',
       primary: '#1D4ED8',
       primaryText: '#FFFFFF',
+      primarySurface: '#DBEAFE',
       success: '#15803D',
       successSurface: '#BBF7D0',
       warningSurface: '#FDE68A',
       warningText: '#78350F',
+      danger: '#B91C1C',
     },
   },
 };

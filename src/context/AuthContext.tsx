@@ -1,59 +1,79 @@
 /**
- * 카트 연결 인증 상태 — mock JWT 로그인.
+ * 회원 인증 상태 — mock 로컬 계정 로그인.
  *
- * 이 앱에는 별도의 회원 로그인 화면이 없다. "카트 연결"(QR/코드) 자체가
- * 세션을 여는 로그인 동작이며, 성공 시 받은 토큰을 secure-store에 저장해
- * 앱 재시작 후에도 유지한다.
+ * "카트 연결(QR)"과는 분리된 개념이다. 회원 로그인은 앱을 재시작해도
+ * 로그아웃 전까지 유지되며, 카트 세션(CartSessionContext)은 그 위에서 독립적으로 열린다.
+ * 로그인 성공 시 받은 세션(토큰 포함)을 secure-store에 저장해 재시작 후에도 복원한다.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { connectCart } from '@/lib/api';
-import { clearAuth, loadAuth, saveAuth, type StoredAuth } from '@/lib/authStorage';
+import { loginMember, signupMember, toSession, type SignupInput } from '@/lib/api';
+import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
+
+export type Member = Pick<MemberSession, 'id' | 'name' | 'email'>;
 
 interface AuthContextValue {
+  member: Member | null;
   isAuthenticated: boolean;
   isRestoring: boolean;
-  cartId: string | null;
   token: string | null;
-  login: (code: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (input: SignupInput) => Promise<void>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [auth, setAuth] = useState<StoredAuth | null>(null);
+  const [session, setSession] = useState<MemberSession | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
-    loadAuth()
-      .then(setAuth)
+    loadMemberSession()
+      .then(setSession)
       .finally(() => setIsRestoring(false));
   }, []);
 
-  const login = useCallback(async (code: string) => {
-    const result = await connectCart(code);
-    setAuth(result);
-    await saveAuth(result);
+  const applySession = useCallback(async (next: MemberSession) => {
+    setSession(next);
+    await saveMemberSession(next);
   }, []);
 
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const result = await loginMember(email, password);
+      await applySession(toSession(result));
+    },
+    [applySession],
+  );
+
+  const signup = useCallback(
+    async (input: SignupInput) => {
+      const result = await signupMember(input);
+      await applySession(toSession(result));
+    },
+    [applySession],
+  );
+
   const logout = useCallback(() => {
-    setAuth(null);
-    clearAuth().catch(() => {
+    setSession(null);
+    clearMemberSession().catch(() => {
       // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.
+      // 카트 세션/장바구니 정리는 하위 Provider가 로그아웃을 감지해 캐스케이드로 처리한다.
     });
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      isAuthenticated: auth !== null,
+      member: session ? { id: session.id, name: session.name, email: session.email } : null,
+      isAuthenticated: session !== null,
       isRestoring,
-      cartId: auth?.cartId ?? null,
-      token: auth?.token ?? null,
+      token: session?.token ?? null,
       login,
+      signup,
       logout,
     }),
-    [auth, isRestoring, login, logout],
+    [session, isRestoring, login, signup, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

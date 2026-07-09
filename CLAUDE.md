@@ -48,7 +48,7 @@
 ## 접근성: 일반인 / 노약자 모드 토글
 
 - 전역 `ModeContext`에 `mode: 'normal' | 'senior'` 상태를 둔다. **기본값은 `normal`(일반인)**.
-- 토글은 **첫 화면(카트 연결)에만** 배치한다. 쇼핑 시작 전 한 번 선택.
+- 토글은 **로그인 화면(로그인 전 접근용)과 마이페이지(설정)** 에 둔다. 선택하면 secure-store에 저장돼 유지된다.
 - 두 모드는 **기능 100% 동일**, 글자 크기·간격·대비·음성 안내만 다르다.
 - 화면 컴포넌트는 **한 벌만** 만들고, 스타일 값은 `theme[mode]` 토큰에서 읽는다.
   화면마다 두 벌씩 만들지 말 것.
@@ -67,24 +67,42 @@
 
 Expo 템플릿 관례에 따라 소스는 `src/` 하위에 둔다. 경로 별칭 `@/*` → `./src/*`.
 
+플로우: **로그인/회원가입 → 홈(허브) → [쇼핑 시작] 카트 QR 연결 → 장바구니 → 결제 → 홈**.
+홈에서 쇼핑 시작·매장 길 안내·마이페이지 등을 선택해 흐름을 시작한다.
+회원 세션(로그인)과 카트 세션(QR)은 분리돼 있고, 둘 다 secure-store에 저장되어
+앱을 나갔다 돌아와도 복원된다(홈의 "쇼핑 계속하기"로 이어하기).
+
 ```
 src/
   app/
-    _layout.tsx        # 루트 Stack + ModeProvider/SafeArea/GestureHandler
-    index.tsx          # (1) 카트 연결 + 모드 토글 (토글은 여기서만)
+    _layout.tsx        # 루트 Stack + Mode/Auth/CartSession/Cart Provider
+    index.tsx          # 라우팅 게이트 (미로그인 → /login · 로그인 → /home)
+    login.tsx          # 로그인 + 모드 토글 (토글은 여기·마이페이지)
+    signup.tsx         # 회원가입 (성공 시 자동 로그인)
+    home.tsx           # 홈 허브 — 쇼핑 시작/계속·메뉴·오늘의 할인
+    mypage.tsx         # 마이페이지 — 내 정보·접근성 설정·로그아웃
+    connect.tsx        # (1) 카트 연결 (QR 스캔·코드 입력)
     cart.tsx           # (2) 장바구니 (SSE 실시간)
     checkout.tsx       # (3) 결제 확인 (1탭)
     complete.tsx       # (4) 결제 완료 (QR 영수증·음성)
     navigate.tsx       # (5) 매장 길 안내
+  components/
+    Card.tsx           # 흰 카드 (그림자/테두리·radius 토큰)
+    PrimaryButton.tsx  # 블루/그린 CTA 버튼 (loading·variant)
+    TextField.tsx      # 라벨 있는 채움형 입력창 (포커스 강조)
+    ModeToggle.tsx     # 큰 글자·고대비 토글 (로그인 화면 전용)
   context/
-    ModeContext.tsx    # mode: 'normal' | 'senior' (기본 normal) — 구현됨
-    CartContext.tsx    # 장바구니 상태 (useReducer) — Sprint 3
-    AuthContext.tsx    # JWT — Sprint 2
+    ModeContext.tsx        # mode: 'normal' | 'senior' (기본 normal)
+    AuthContext.tsx        # 회원 로그인/회원가입 세션 (JWT)
+    CartSessionContext.tsx # 카트 연결(cartId) 세션 — 영속화
+    CartContext.tsx        # 장바구니 상태 (useReducer) — 영속화
   theme/
-    tokens.ts          # normal / senior 두 벌 (글자·간격·대비)
+    tokens.ts          # normal / senior 두 벌 (글자·색·그림자·radius·CTA)
   lib/
-    api.ts             # custom fetch wrapper (JWT 자동 첨부)
+    api.ts             # custom fetch wrapper (회원 JWT 자동 첨부)
     sse.ts             # SSE(react-native-sse) 연결
+    authStorage.ts     # 회원 세션·계정 저장 (secure-store)
+    cartStorage.ts     # 카트 세션·장바구니 저장 (secure-store)
 ```
 
 > 앱 코드는 `CartrAIder/frontend` 레포에 있다. 이 디렉터리(`창의공학설계`)는 기획/문서 공간이다.
@@ -95,7 +113,9 @@ src/
 
 - 언어: 코드 주석·커밋 메시지는 한국어 허용, 식별자는 영어.
 - 스타일: 기존 파일의 컨벤션(들여쓰기·네이밍·주석 밀도)을 그대로 따른다.
-- 하드코딩된 폰트 크기/색상 금지 → 반드시 `theme[mode]` 토큰 사용.
+- 하드코딩된 폰트 크기/색상/그림자/radius 금지 → 반드시 `theme[mode]` 토큰 사용.
+- 비주얼: "Toss Blue"(흰 카드·은은한 그림자·넉넉한 여백·파랑 브랜드). 카드/버튼/입력은
+  `components/`의 `Card`·`PrimaryButton`·`TextField`를 재사용한다(화면마다 새로 만들지 말 것).
 - API base URL, SSE 엔드포인트 등은 상수/환경변수로 분리한다.
 - 백엔드 API 명세 미확정 부분(SSE 인증 방식 등)은 TODO로 표시하고 목(mock)으로 개발.
 

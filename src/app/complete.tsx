@@ -1,12 +1,13 @@
 import * as Speech from 'expo-speech';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import QRCode from 'react-native-qrcode-svg';
 
-import { useAuth } from '@/context/AuthContext';
-import { useCart } from '@/context/CartContext';
+import { Card } from '@/components/Card';
+import { PrimaryButton } from '@/components/PrimaryButton';
+import { useCartSession } from '@/context/CartSessionContext';
 import { useTheme } from '@/context/ModeContext';
 
 function formatWon(amount: number): string {
@@ -18,8 +19,7 @@ export default function CompleteScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { logout } = useAuth();
-  const cart = useCart();
+  const { endSession } = useCartSession();
   const params = useLocalSearchParams<{ receiptId?: string; amount?: string }>();
 
   const receiptId = params.receiptId ?? '—';
@@ -38,69 +38,55 @@ export default function CompleteScreen() {
 
   function handleRestart() {
     Speech.stop();
-    cart.reset();
-    logout();
-    router.replace('/');
+    // 카트 세션만 종료(장바구니 비우기는 캐스케이드로 처리) — 회원 로그인은 유지하고 홈으로.
+    endSession();
+    router.replace('/home');
   }
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      edges={['bottom']}
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <View style={styles.body}>
-        <View style={[styles.checkCircle, { backgroundColor: colors.success }]}>
-          <Text style={styles.checkMark}>✓</Text>
+        <View style={[styles.checkRing, { backgroundColor: colors.successSurface }]}>
+          <View style={[styles.checkCircle, { backgroundColor: colors.success }]}>
+            <Text style={styles.checkMark}>✓</Text>
+          </View>
         </View>
-        <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.success }]}>
-          결제 완료!
-        </Text>
-        <Text style={{ fontSize: theme.fontAmount, color: colors.text, fontWeight: '700' }}>
-          {formatWon(amount)} 이 결제되었습니다
-        </Text>
+        <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.text }]}>결제 완료!</Text>
+        <Text style={{ fontSize: theme.fontDisplay, color: colors.text, fontWeight: '800' }}>{formatWon(amount)}</Text>
+        <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>결제가 성공적으로 처리되었어요</Text>
 
-        <View style={[styles.qrBox, { borderColor: colors.border, padding: theme.spacing }]}>
-          <QRCode value={receiptId} size={160} />
-        </View>
-        <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>
-          영수증 번호: #{receiptId}
-        </Text>
+        <Card style={styles.receiptCard}>
+          <View style={styles.qrWrap}>
+            <QRCode value={receiptId} size={150} />
+          </View>
+          <View style={[styles.receiptDivider, { backgroundColor: colors.border }]} />
+          <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>영수증 번호</Text>
+          <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>#{receiptId}</Text>
+          {theme.voiceGuide && (
+            <Text style={{ fontSize: theme.fontBody - 2, color: colors.primary, textAlign: 'center', marginTop: 4 }}>
+              🔊 영수증을 음성으로 읽어드릴게요
+            </Text>
+          )}
+        </Card>
 
-        {theme.voiceGuide && (
-          <Text style={{ fontSize: theme.fontBody - 2, color: colors.primary, textAlign: 'center' }}>
-            🔊 영수증을 음성으로 읽어드릴게요
-          </Text>
-        )}
         <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, textAlign: 'center' }}>
           출구 직원에게 이 화면을 보여주셔도 됩니다
         </Text>
       </View>
 
-      <Pressable
-        onPress={handleRestart}
-        style={[styles.restartButton, { backgroundColor: colors.primary, minHeight: theme.minTouch }]}
-      >
-        <Text style={{ fontSize: theme.fontButton, color: colors.primaryText, fontWeight: '700' }}>
-          처음으로 돌아가기
-        </Text>
-      </Pressable>
+      <PrimaryButton title="쇼핑 종료 · 홈으로" onPress={handleRestart} style={{ marginBottom: 8 }} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 16 },
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  checkCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  checkMark: { fontSize: 36, color: '#FFFFFF', fontWeight: '700' },
-  title: { fontWeight: '700' },
-  qrBox: { borderWidth: 1, borderRadius: 16, marginTop: 8 },
-  restartButton: { borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  container: { flex: 1, paddingHorizontal: 20 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  checkRing: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  checkCircle: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
+  checkMark: { fontSize: 38, color: '#FFFFFF', fontWeight: '800' },
+  title: { fontWeight: '800' },
+  receiptCard: { alignItems: 'center', gap: 4, marginTop: 16, alignSelf: 'stretch' },
+  qrWrap: { padding: 8, backgroundColor: '#FFFFFF', borderRadius: 12 },
+  receiptDivider: { height: 1, alignSelf: 'stretch', marginVertical: 12 },
 });
