@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
@@ -15,9 +15,18 @@ export default function MyPageScreen() {
   const { member, logout } = useAuth();
 
   function handleLogout() {
-    // 로그아웃 시 카트 세션·장바구니 정리는 캐스케이드가 처리하고, 화면만 로그인으로 되돌린다.
-    logout();
-    router.replace('/login');
+    Alert.alert('로그아웃', '정말 로그아웃할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '로그아웃',
+        style: 'destructive',
+        onPress: () => {
+          // 로그아웃 시 카트 세션·장바구니 정리는 캐스케이드가 처리하고, 화면만 로그인으로 되돌린다.
+          logout();
+          router.replace('/login');
+        },
+      },
+    ]);
   }
 
   return (

@@ -7,14 +7,16 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { loginMember, signupMember, toSession, type SignupInput } from '@/lib/api';
+import { isTokenExpired, loginMember, logoutMember, signupMember, toSession, type SignupInput } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
-export type Member = Pick<MemberSession, 'id' | 'name' | 'email'>;
+export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
 
 interface AuthContextValue {
   member: Member | null;
   isAuthenticated: boolean;
+  /** 관리자 계정 여부 — 홈의 관리자 버튼·`/admin` 라우트 가드가 이 값을 본다. */
+  isAdmin: boolean;
   isRestoring: boolean;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
@@ -30,7 +32,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadMemberSession()
-      .then(setSession)
+      .then((restored) => {
+        // 저장된 액세스 토큰이 이미 만료됐으면 세션을 폐기(자동 로그아웃)한다.
+        if (restored && isTokenExpired(restored.token)) {
+          clearMemberSession().catch(() => {});
+          setSession(null);
+          return;
+        }
+        setSession(restored);
+      })
       .finally(() => setIsRestoring(false));
   }, []);
 
@@ -56,6 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    // 서버 refresh 토큰 무효화(best-effort) — 실패해도 로컬 로그아웃은 진행.
+    logoutMember().catch(() => {});
     setSession(null);
     clearMemberSession().catch(() => {
       // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.
@@ -65,8 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      member: session ? { id: session.id, name: session.name, email: session.email } : null,
+      member: session
+        ? { id: session.id, name: session.name, email: session.email, role: session.role }
+        : null,
       isAuthenticated: session !== null,
+      isAdmin: session?.role === 'admin',
       isRestoring,
       token: session?.token ?? null,
       login,

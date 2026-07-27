@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,6 +17,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ModeContext';
+import { DEMO_ADMIN, IS_MOCK, isEmailValid } from '@/lib/api';
 
 /** 로그인 화면 — 앱의 진짜 첫 화면. 이메일·비밀번호로 회원 로그인 후 카트 연결로 넘어간다. */
 export default function LoginScreen() {
@@ -28,6 +30,9 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const passwordRef = useRef<TextInput>(null);
+  const emailInvalid = email.length > 0 && !isEmailValid(email);
 
   async function handleLogin() {
     if (submitting) return;
@@ -65,27 +70,66 @@ export default function LoginScreen() {
             <TextField
               label="이메일"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (error) setError(null);
+              }}
               placeholder="you@example.com"
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              submitBehavior="submit"
+              error={emailInvalid ? '이메일 형식을 확인해주세요' : null}
+              invalid={!!error}
             />
             <TextField
+              ref={passwordRef}
               label="비밀번호"
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(t) => {
+                setPassword(t);
+                if (error) setError(null);
+              }}
               placeholder="비밀번호"
               secureTextEntry
               autoCapitalize="none"
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="done"
               onSubmitEditing={handleLogin}
+              invalid={!!error}
             />
 
             {error && (
-              <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger }}>{error}</Text>
+              <View style={[styles.errorBox, { borderColor: colors.danger }]}>
+                <Text style={{ fontSize: theme.fontBody - 1, color: colors.danger, lineHeight: 20 }}>{error}</Text>
+              </View>
             )}
 
             <PrimaryButton title="로그인" onPress={handleLogin} loading={submitting} style={{ marginTop: 4 }} />
+
+            {/* 시연용 관리자 계정 안내 — mock 모드에서만 노출(실서버엔 해당 계정 없음). */}
+            {IS_MOCK && (
+              <Pressable
+                onPress={() => {
+                  setEmail(DEMO_ADMIN.email);
+                  setPassword(DEMO_ADMIN.password);
+                  setError(null);
+                }}
+                style={[
+                  styles.demoHint,
+                  { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: theme.radiusSm },
+                ]}
+              >
+                <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}>
+                  🛠️ 시연용 관리자 계정 자동 입력 ({DEMO_ADMIN.email})
+                </Text>
+              </Pressable>
+            )}
 
             <View style={styles.signupRow}>
               <Text style={{ fontSize: theme.fontBody - 1, color: colors.textMuted }}>
@@ -117,6 +161,8 @@ const styles = StyleSheet.create({
   logoBadge: { width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   logoEmoji: { fontSize: 44 },
   appName: { fontWeight: '800', letterSpacing: 0.3 },
+  errorBox: { borderWidth: 1, borderRadius: 10, padding: 12 },
+  demoHint: { borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, marginTop: 4 },
   signupRow: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 6 },
   spacer: { flex: 1, minHeight: 16 },
 });
