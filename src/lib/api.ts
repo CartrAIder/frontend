@@ -337,30 +337,33 @@ export async function disconnectCart(qrCode: string): Promise<void> {
 }
 
 /**
- * 장바구니 상품 수량을 변경한다.
- * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ * 장바구니 상품 수량을 증감(delta)한다. delta는 +1 / -1.
+ * PATCH /api/carts/{qrCode}/items/{barcode} — 수량이 0 이하가 되면 서버가 삭제하고 204.
+ * 결과는 SSE cart-updated 스냅샷으로도 반영된다.
  */
-export async function updateItemQty(itemId: string, qty: number): Promise<void> {
+export async function adjustItemQty(qrCode: string, barcode: string, delta: number): Promise<void> {
   if (USE_MOCK) {
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/items/${itemId}`, {
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ qty }),
+    body: JSON.stringify({ delta }),
   });
 }
 
 /**
  * 장바구니 상품을 삭제한다.
- * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ * DELETE /api/carts/{qrCode}/items/{barcode} → 204.
  */
-export async function removeCartItem(itemId: string): Promise<void> {
+export async function removeCartItem(qrCode: string, barcode: string): Promise<void> {
   if (USE_MOCK) {
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/items/${itemId}`, { method: 'DELETE' });
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
+    method: 'DELETE',
+  });
 }
 
 export interface PaymentResult {
