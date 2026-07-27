@@ -164,7 +164,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       onOpen: () => dispatch({ type: 'CONNECTION_STATUS', status: 'open' }),
       onSnapshot: (snapshot) => dispatch({ type: 'SNAPSHOT', snapshot }),
       onClosed: () => dispatch({ type: 'RESET' }),
-      onError: () => dispatch({ type: 'CONNECTION_STATUS', status: 'idle' }),
+      onError: () => dispatch({ type: 'CONNECTION_STATUS', status: 'connecting' }), // 끊김 → 자동 재연결 중
     })
       .then((s) => {
         if (!active) {
