@@ -18,7 +18,7 @@ import {
 } from 'react';
 
 import { useCartSession } from '@/context/CartSessionContext';
-import { adjustItemQty, removeCartItem } from '@/lib/api';
+import { removeCartItem, setItemQty } from '@/lib/api';
 import { loadCart, saveCart, type CartItem } from '@/lib/cartStorage';
 import { connectCartStream, type CartSnapshot, type CartStream } from '@/lib/sse';
 
@@ -194,8 +194,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const increaseQty = useCallback((itemId: string) => {
     const item = itemsRef.current.find((i) => i.id === itemId);
     if (!item) return;
-    dispatch({ type: 'SET_QTY', itemId, qty: item.qty + 1 }); // 낙관적, SSE 스냅샷이 최종 정정
-    if (cartIdRef.current) adjustItemQty(cartIdRef.current, itemId, +1).catch(() => {});
+    const next = item.qty + 1;
+    dispatch({ type: 'SET_QTY', itemId, qty: next }); // 낙관적, SSE 스냅샷이 최종 정정
+    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(() => {});
   }, []);
 
   const decreaseQty = useCallback((itemId: string) => {
@@ -206,8 +207,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(() => {});
       return;
     }
-    dispatch({ type: 'SET_QTY', itemId, qty: item.qty - 1 });
-    if (cartIdRef.current) adjustItemQty(cartIdRef.current, itemId, -1).catch(() => {});
+    const next = item.qty - 1;
+    dispatch({ type: 'SET_QTY', itemId, qty: next });
+    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(() => {});
   }, []);
 
   const removeItem = useCallback((itemId: string) => {

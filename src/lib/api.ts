@@ -337,18 +337,18 @@ export async function disconnectCart(qrCode: string): Promise<void> {
 }
 
 /**
- * 장바구니 상품 수량을 증감(delta)한다. delta는 +1 / -1.
- * PATCH /api/carts/{qrCode}/items/{barcode} — 수량이 0 이하가 되면 서버가 삭제하고 204.
- * 결과는 SSE cart-updated 스냅샷으로도 반영된다.
+ * 장바구니 상품 수량을 지정 수량으로 설정한다.
+ * PATCH /api/carts/{qrCode}/items/{barcode} — body의 `delta`는 (이름과 달리) "설정할 절대 수량"이다.
+ * 0 이하를 보내면 서버가 아이템을 삭제하고 204. 결과는 SSE cart-updated 스냅샷으로도 반영된다.
  */
-export async function adjustItemQty(qrCode: string, barcode: string, delta: number): Promise<void> {
+export async function setItemQty(qrCode: string, barcode: string, quantity: number): Promise<void> {
   if (USE_MOCK) {
     await delay(300);
     return;
   }
   await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ delta }),
+    body: JSON.stringify({ delta: quantity }),
   });
 }
 
