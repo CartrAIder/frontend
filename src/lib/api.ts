@@ -20,6 +20,26 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * 백엔드 에러 응답({ message, details })에서 사용자에게 보여줄 문구를 뽑아낸다.
+ * - 형식 오류(400): details 배열에 필드별 메시지가 오므로 이를 우선 노출한다.
+ * - 그 외(409 중복, 401 등): message를 그대로 쓴다.
+ */
+async function extractErrorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (Array.isArray(body?.details) && body.details.length > 0) {
+      return body.details.join('\n');
+    }
+    if (typeof body?.message === 'string' && body.message) {
+      return body.message;
+    }
+  } catch {
+    // JSON 파싱 실패 시 아래 기본 문구로 폴백
+  }
+  return `요청에 실패했어요. (${res.status})`;
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = await loadMemberSession();
   const headers = new Headers(init.headers);
@@ -30,7 +50,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!res.ok) {
-    throw new Error(`API ${res.status}: ${path}`);
+    throw new Error(await extractErrorMessage(res));
   }
   // 204 or empty body 대응 (삭제, 수량이 0일때, 로그아웃...등)
   if (res.status === 204 || res.headers.get('content-length') === '0') {
@@ -46,6 +66,38 @@ export interface SignupInput {
   name: string;
   email: string;
   password: string;
+}
+
+// ── 입력값 검증 (백엔드 규칙과 동일하게 클라이언트에서 선검증) ──────────────
+
+/** 비밀번호 규칙 안내 문구 — 회원가입 폼에 그대로 표시한다. */
+export const PASSWORD_RULE_TEXT = '영문·숫자·특수문자를 포함해 8~20자';
+
+export interface PasswordChecks {
+  length: boolean; // 8~20자
+  letter: boolean; // 영문 포함
+  digit: boolean; // 숫자 포함
+  special: boolean; // 특수문자 포함
+}
+
+/** 비밀번호 각 조건 충족 여부. 실시간 체크리스트 표시에 사용한다. */
+export function checkPassword(password: string): PasswordChecks {
+  return {
+    length: password.length >= 8 && password.length <= 20,
+    letter: /[A-Za-z]/.test(password),
+    digit: /\d/.test(password),
+    special: /[!@#$%^&*()_+\-=]/.test(password),
+  };
+}
+
+/** 백엔드 정규식 ^(?=.*[A-Za-z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=]).{8,20}$ 와 동일 판정. */
+export function isPasswordValid(password: string): boolean {
+  return Object.values(checkPassword(password)).every(Boolean);
+}
+
+/** 이메일 형식 검증(간단). 백엔드 @Email 과 대략 일치. */
+export function isEmailValid(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 export interface AuthResult {
@@ -150,7 +202,9 @@ export async function loginMember(email: string, password: string): Promise<Auth
     body: JSON.stringify({ email: normalizedEmail, password }),
   });
   if (!res.ok) {
-    throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
+    // 401이면 백엔드 메시지, 그 외엔 일반 문구
+    const message = res.status === 401 ? await extractErrorMessage(res) : '로그인에 실패했어요. 잠시 후 다시 시도해주세요.';
+    throw new Error(message);
   }
 
   const authHeader = res.headers.get('authorization') ?? res.headers.get('Authorization');
