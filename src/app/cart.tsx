@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
@@ -8,6 +8,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCartSession } from '@/context/CartSessionContext';
 import { useCart } from '@/context/CartContext';
 import { useTheme } from '@/context/ModeContext';
+import { confirmAction } from '@/lib/confirm';
 import { findProduct } from '@/lib/mock/products';
 
 function formatWon(amount: number): string {
@@ -24,17 +25,15 @@ export default function CartScreen() {
   const [bannerVisible, setBannerVisible] = useState(false);
 
   function handleReturnCart() {
-    Alert.alert('카트 반납', '담긴 상품이 모두 사라지고 카트 연결이 해제돼요. 반납할까요?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '반납',
-        style: 'destructive',
-        onPress: () => {
-          endSession(); // 서버 점유 해제 + 로컬 세션/장바구니 정리(캐스케이드)
-          router.replace('/home');
-        },
+    confirmAction(
+      '카트 반납',
+      '담긴 상품이 모두 사라지고 카트 연결이 해제돼요. 반납할까요?',
+      () => {
+        endSession(); // 서버 점유 해제 + 로컬 세션/장바구니 정리(캐스케이드)
+        router.replace('/home');
       },
-    ]);
+      { confirmText: '반납', destructive: true },
+    );
   }
 
   useEffect(() => {
