@@ -1,5 +1,5 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,7 +17,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ModeContext';
-import { DEMO_ADMIN, IS_MOCK } from '@/lib/api';
+import { DEMO_ADMIN, IS_MOCK, isEmailValid } from '@/lib/api';
 
 /** 로그인 화면 — 앱의 진짜 첫 화면. 이메일·비밀번호로 회원 로그인 후 카트 연결로 넘어간다. */
 export default function LoginScreen() {
@@ -29,6 +30,9 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const passwordRef = useRef<TextInput>(null);
+  const emailInvalid = email.length > 0 && !isEmailValid(email);
 
   async function handleLogin() {
     if (submitting) return;
@@ -74,9 +78,16 @@ export default function LoginScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              submitBehavior="submit"
+              error={emailInvalid ? '이메일 형식을 확인해주세요' : null}
               invalid={!!error}
             />
             <TextField
+              ref={passwordRef}
               label="비밀번호"
               value={password}
               onChangeText={(t) => {
@@ -86,6 +97,9 @@ export default function LoginScreen() {
               placeholder="비밀번호"
               secureTextEntry
               autoCapitalize="none"
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="done"
               onSubmitEditing={handleLogin}
               invalid={!!error}
             />

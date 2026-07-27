@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  type TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,20 +28,29 @@ export default function SignupScreen() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null); // 서버발(중복 등) 이메일 에러
+
+  // 다음 칸으로 포커스 이동용 ref
+  const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const passwordConfirmRef = useRef<TextInput>(null);
 
   // 실시간 검증 상태
   const pwChecks = checkPassword(password);
   const emailOk = isEmailValid(email);
   const emailInvalid = email.length > 0 && !emailOk;
   const pwValid = isPasswordValid(password);
-  const formValid = name.trim().length > 0 && emailOk && pwValid;
+  const pwMatch = passwordConfirm.length > 0 && password === passwordConfirm;
+  const formValid = name.trim().length > 0 && emailOk && pwValid && pwMatch;
 
   // 이메일 입력칸에 표시할 에러: 서버발(중복) 우선, 없으면 형식 안내
   const emailFieldError = emailError ?? (emailInvalid ? '이메일 형식을 확인해주세요 (예: you@example.com)' : null);
+  // 비밀번호 확인 불일치 안내 (확인칸에 입력이 있고 다를 때만)
+  const confirmError = passwordConfirm.length > 0 && password !== passwordConfirm ? '비밀번호가 일치하지 않아요' : null;
 
   async function handleSignup() {
     if (submitting || !formValid) return;
@@ -96,9 +106,21 @@ export default function SignupScreen() {
           </View>
 
           <View style={{ gap: theme.spacing }}>
-            <TextField label="이름" value={name} onChangeText={setName} placeholder="홍길동" autoCapitalize="words" />
+            <TextField
+              label="이름"
+              value={name}
+              onChangeText={setName}
+              placeholder="홍길동"
+              autoCapitalize="words"
+              autoComplete="name"
+              textContentType="name"
+              returnKeyType="next"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              submitBehavior="submit"
+            />
 
             <TextField
+              ref={emailRef}
               label="이메일"
               value={email}
               onChangeText={(t) => {
@@ -109,18 +131,28 @@ export default function SignupScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              submitBehavior="submit"
               error={emailFieldError}
             />
 
             <View style={{ gap: 8 }}>
               <TextField
+                ref={passwordRef}
                 label="비밀번호"
                 value={password}
                 onChangeText={setPassword}
                 placeholder="비밀번호"
                 secureTextEntry
                 autoCapitalize="none"
-                onSubmitEditing={handleSignup}
+                autoComplete="new-password"
+                textContentType="newPassword"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordConfirmRef.current?.focus()}
+                submitBehavior="submit"
               />
               {/* 규칙 안내 (항상 표시) */}
               <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}>{PASSWORD_RULE_TEXT}</Text>
@@ -134,6 +166,21 @@ export default function SignupScreen() {
                 </View>
               )}
             </View>
+
+            <TextField
+              ref={passwordConfirmRef}
+              label="비밀번호 확인"
+              value={passwordConfirm}
+              onChangeText={setPasswordConfirm}
+              placeholder="비밀번호 다시 입력"
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete="new-password"
+              textContentType="newPassword"
+              returnKeyType="done"
+              onSubmitEditing={handleSignup}
+              error={confirmError}
+            />
 
             {error && (
               <View style={[styles.errorBox, { borderColor: colors.danger }]}>

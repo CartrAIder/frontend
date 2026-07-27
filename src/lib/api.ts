@@ -27,6 +27,25 @@ function delay(ms: number): Promise<void> {
  * - 형식 오류(400): details 배열에 필드별 메시지가 오므로 이를 우선 노출한다.
  * - 그 외(409 중복, 401 등): message를 그대로 쓴다.
  */
+/**
+ * fetch + 타임아웃 + 네트워크 오류를 사용자 친화 메시지로 변환.
+ * (서버가 꺼져있거나 와이파이가 끊기면 기본 fetch는 "Network request failed"를 던진다)
+ */
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (e) {
+    if ((e as { name?: string })?.name === 'AbortError') {
+      throw new Error('서버 응답이 없어요. 잠시 후 다시 시도해주세요.');
+    }
+    throw new Error('서버에 연결할 수 없어요. 네트워크 연결을 확인해주세요.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
@@ -50,7 +69,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers.set('Authorization', `Bearer ${session.token}`);
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
@@ -197,7 +216,7 @@ export async function loginMember(email: string, password: string): Promise<Auth
 
   // 실서버: 응답 body는 비어있고 액세스 토큰은 Authorization 응답 헤더로 온다.
   // (리프레시 토큰은 refreshToken 쿠키. 웹에서는 credentials: 'include'로 저장한다.)
-  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -245,8 +264,22 @@ export async function logoutMember(): Promise<void> {
   }
 }
 
+/**
+ * 저장된 액세스 토큰이 만료됐는지 검사. (앱 시작 시 세션 복원 후 만료 세션 자동 로그아웃용)
+ * 디코드 불가(mock 토큰 등)거나 exp가 없으면 false(만료로 취급하지 않음).
+ */
+export function isTokenExpired(token: string): boolean {
+  try {
+    const exp = decodeJWT(token).exp;
+    if (!exp) return false;
+    return exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 /** JWT payload 디코드 (검증X, 표시용 정보 추출). RN/웹 공통(atob 없으면 Buffer). */
-function decodeJWT(token: string): { sub: string; email?: string; role?: string } {
+function decodeJWT(token: string): { sub: string; email?: string; role?: string; exp?: number } {
   const payload = token.split('.')[1];
   const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
   const json =

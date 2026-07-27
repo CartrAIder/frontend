@@ -7,7 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { loginMember, logoutMember, signupMember, toSession, type SignupInput } from '@/lib/api';
+import { isTokenExpired, loginMember, logoutMember, signupMember, toSession, type SignupInput } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
 export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
@@ -32,7 +32,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadMemberSession()
-      .then(setSession)
+      .then((restored) => {
+        // 저장된 액세스 토큰이 이미 만료됐으면 세션을 폐기(자동 로그아웃)한다.
+        if (restored && isTokenExpired(restored.token)) {
+          clearMemberSession().catch(() => {});
+          setSession(null);
+          return;
+        }
+        setSession(restored);
+      })
       .finally(() => setIsRestoring(false));
   }, []);
 

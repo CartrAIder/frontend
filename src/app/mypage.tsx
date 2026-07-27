@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
@@ -12,12 +12,21 @@ export default function MyPageScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { member, logout } = useAuth();
+  const { member, isAdmin, logout } = useAuth();
 
   function handleLogout() {
-    // 로그아웃 시 카트 세션·장바구니 정리는 캐스케이드가 처리하고, 화면만 로그인으로 되돌린다.
-    logout();
-    router.replace('/login');
+    Alert.alert('로그아웃', '정말 로그아웃할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '로그아웃',
+        style: 'destructive',
+        onPress: () => {
+          // 로그아웃 시 카트 세션·장바구니 정리는 캐스케이드가 처리하고, 화면만 로그인으로 되돌린다.
+          logout();
+          router.replace('/login');
+        },
+      },
+    ]);
   }
 
   return (
@@ -35,8 +44,21 @@ export default function MyPageScreen() {
               {member?.name ?? '고객'}님
             </Text>
             <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>{member?.email ?? ''}</Text>
-            <View style={[styles.badge, { backgroundColor: colors.primarySurface, borderRadius: 6 }]}>
-              <Text style={{ fontSize: theme.fontBody - 5, color: colors.primary, fontWeight: '700' }}>일반 회원</Text>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: isAdmin ? colors.text : colors.primarySurface, borderRadius: 6 },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: theme.fontBody - 5,
+                  color: isAdmin ? '#FFFFFF' : colors.primary,
+                  fontWeight: '700',
+                }}
+              >
+                {isAdmin ? '🛠️ 관리자' : '일반 회원'}
+              </Text>
             </View>
           </View>
         </Card>
@@ -57,6 +79,39 @@ export default function MyPageScreen() {
         <View style={{ gap: 8 }}>
           <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700', marginLeft: 4 }}>메뉴</Text>
           <Card padded={false}>
+            {isAdmin && (
+              <>
+                <Pressable
+                  onPress={() => router.push('/admin')}
+                  style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
+                >
+                  <Text style={{ fontSize: 20 }}>🛠️</Text>
+                  <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>
+                    관리자 페이지
+                  </Text>
+                  <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
+                </Pressable>
+                <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+              </>
+            )}
+            <Pressable
+              onPress={() => router.push('/products')}
+              style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
+            >
+              <Text style={{ fontSize: 20 }}>🔎</Text>
+              <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>상품 보기</Text>
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
+            </Pressable>
+            <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+            <Pressable
+              onPress={() => router.push('/map')}
+              style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
+            >
+              <Text style={{ fontSize: 20 }}>🗺️</Text>
+              <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>매장 지도</Text>
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
+            </Pressable>
+            <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
             <Pressable
               onPress={() => router.push('/navigate')}
               style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}

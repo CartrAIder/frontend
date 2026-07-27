@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { forwardRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 
@@ -38,13 +38,8 @@ function EyeIcon({ off, color, size = 22 }: { off: boolean; color: string; size?
  * - invalid: 빨간 테두리만 (메시지 없이 강조만, 예: 로그인 자격 오류로 두 칸 다 표시)
  * - secureTextEntry: 비밀번호 표시/숨김(👁) 토글 버튼을 자동으로 붙인다.
  */
-export function TextField({
-  label,
-  error,
-  invalid,
-  style,
-  ...inputProps
-}: { label?: string; error?: string | null; invalid?: boolean } & TextInputProps) {
+export const TextField = forwardRef<TextInput, { label?: string; error?: string | null; invalid?: boolean } & TextInputProps>(
+  function TextField({ label, error, invalid, style, ...inputProps }, ref) {
   const theme = useTheme();
   const { colors } = theme;
   const [focused, setFocused] = useState(false);
@@ -61,6 +56,7 @@ export function TextField({
       ) : null}
       <View style={styles.inputWrap}>
         <TextInput
+          ref={ref}
           placeholderTextColor={colors.textMuted}
           {...inputProps}
           secureTextEntry={isPassword ? hidden : inputProps.secureTextEntry}
@@ -103,7 +99,7 @@ export function TextField({
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   inputWrap: { justifyContent: 'center' },
