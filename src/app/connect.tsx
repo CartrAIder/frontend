@@ -49,8 +49,8 @@ export default function CartConnectScreen() {
     try {
       await connect(rawCode);
       router.replace('/cart');
-    } catch {
-      setError('연결에 실패했어요. 코드를 확인하고 다시 시도해주세요.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message: '연결에 실패했어요. 코드를 확인하고 다시 시도해주세요.');
       setScanned(false);
       setConnecting(false);
     }
@@ -104,8 +104,8 @@ export default function CartConnectScreen() {
             <TextField
               value={code}
               onChangeText={setCode}
-              placeholder="카트 코드 입력 (예: A12)"
-              autoCapitalize="characters"
+              placeholder="카트 코드 입력 (예: cart_001)"
+              autoCapitalize="none" // 대문자화 방지
               autoCorrect={false}
             />
             <PrimaryButton title="연결하기" onPress={() => handleConnect(code)} loading={connecting} />

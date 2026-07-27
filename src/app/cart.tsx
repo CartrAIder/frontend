@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
@@ -19,9 +19,23 @@ export default function CartScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { cartId } = useCartSession();
+  const { cartId, endSession } = useCartSession();
   const cart = useCart();
   const [bannerVisible, setBannerVisible] = useState(false);
+
+  function handleReturnCart() {
+    Alert.alert('카트 반납', '담긴 상품이 모두 사라지고 카트 연결이 해제돼요. 반납할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '반납',
+        style: 'destructive',
+        onPress: () => {
+          endSession(); // 서버 점유 해제 + 로컬 세션/장바구니 정리(캐스케이드)
+          router.replace('/home');
+        },
+      },
+    ]);
+  }
 
   useEffect(() => {
     if (!cart.lastScanned) return undefined;
@@ -132,6 +146,11 @@ export default function CartScreen() {
           disabled={cart.items.length === 0}
           variant="success"
         />
+        <Pressable onPress={handleReturnCart} hitSlop={8} style={styles.returnBtn} accessibilityLabel="카트 반납">
+          <Text style={{ fontSize: theme.fontBody - 1, color: colors.danger, fontWeight: '600', textAlign: 'center' }}>
+            카트 반납하기
+          </Text>
+        </Pressable>
       </Card>
     </SafeAreaView>
   );
@@ -154,6 +173,7 @@ const styles = StyleSheet.create({
   stepBtn: { alignItems: 'center', justifyContent: 'center' },
   toast: { paddingVertical: 12, paddingHorizontal: 16, marginBottom: 10 },
   footer: { marginBottom: 8 },
+  returnBtn: { paddingVertical: 6 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
 });

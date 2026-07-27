@@ -297,7 +297,7 @@ function decodeJWT(token: string): { sub: string; email?: string; role?: string;
 // ── 카트 세션 ──────────────────────────────────────────────────────────
 
 export interface ConnectCartResult {
-  cartId: string;
+  cartId: string; // 프론트 세션 식별자 = qrCode
 }
 
 /**
@@ -315,10 +315,25 @@ export async function connectCart(code: string): Promise<ConnectCartResult> {
     return { cartId: trimmed.toUpperCase() };
   }
 
-  return apiFetch<ConnectCartResult>('/api/carts/connect', {
+  // 백엔드: { cartId(number), qrCode, status } 반환
+  // 이후 SSE/수량/삭제 전부 qrCode 기준이므로 세션 식별자 qrCode로 사용.
+  const res = await apiFetch<{ cartId: number; qrCode: string; status: string }>('/api/carts/connect', {
     method: 'POST',
-    body: JSON.stringify({ code: trimmed }),
+    body: JSON.stringify({ qrCode: trimmed }),
   });
+  return { cartId: res.qrCode };
+}
+
+/**
+ * 카트 반납 — 담긴 상품 전체 비우기 + 점유(세션) 해제. 서버가 카트를 WAITING으로 되돌린다.
+ * DELETE /api/carts/{qrCode} (소유자만). best-effort: 실패해도 로컬 세션은 정리한다.
+ */
+export async function disconnectCart(qrCode: string): Promise<void> {
+  if (USE_MOCK) {
+    await delay(200);
+    return;
+  }
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
 }
 
 /**
