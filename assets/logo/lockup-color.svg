@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="120" viewBox="0 0 520 120" fill="none">
+  <g transform="translate(0,0)">
+  <path d="M10 34h14l7 18" stroke="#2563EB" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path d="M28 52h76l-11 32H39L28 52z" fill="#2563EB"></path>
+  <circle cx="46" cy="96" r="8" fill="#2563EB"></circle>
+  <circle cx="86" cy="96" r="8" fill="#2563EB"></circle>
+  <path d="M66 18v-6" stroke="#2563EB" stroke-width="6" stroke-linecap="round"></path>
+  <circle cx="66" cy="7" r="6" fill="#16A34A"></circle>
+  <rect x="44" y="18" width="44" height="34" rx="13" fill="#FFFFFF" stroke="#2563EB" stroke-width="7"></rect>
+  <circle cx="57" cy="33" r="4" fill="#111827"></circle>
+  <circle cx="75" cy="33" r="4" fill="#111827"></circle>
+  <circle cx="37" cy="48" r="8" fill="#FFFFFF" stroke="#2563EB" stroke-width="5"></circle>
+  <circle cx="95" cy="48" r="8" fill="#FFFFFF" stroke="#2563EB" stroke-width="5"></circle>
+  </g>
+  <text x="140" y="80" font-family="&#39;Plus Jakarta Sans&#39;,&#39;Pretendard&#39;,Helvetica,Arial,sans-serif" font-size="58" font-weight="700" letter-spacing="-2" fill="#111827">Cartr<tspan fill="#2563EB" font-weight="800">AI</tspan>der</text>
+</svg>

@@ -25,6 +25,12 @@ export default function CompleteScreen() {
   const receiptId = params.receiptId ?? '—';
   const amount = Number(params.amount ?? 0);
 
+  // 결제 완료 화면 진입 = 결제 플로우 종료 → 카트 세션 자동 반납(서버 점유 해제 + 로컬 정리).
+  useEffect(() => {
+    endSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!theme.voiceGuide) return;
     Speech.speak(`결제가 완료되었습니다. 결제 금액은 ${amount.toLocaleString('ko-KR')}원입니다.`, {
@@ -38,8 +44,7 @@ export default function CompleteScreen() {
 
   function handleRestart() {
     Speech.stop();
-    // 카트 세션만 종료(장바구니 비우기는 캐스케이드로 처리) — 회원 로그인은 유지하고 홈으로.
-    endSession();
+    // 세션은 이미 진입 시 반납됨(위 useEffect). 홈으로 이동만.
     router.replace('/home');
   }
 

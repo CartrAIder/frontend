@@ -20,7 +20,7 @@ import {
 } from 'react';
 
 import { useAuth } from '@/context/AuthContext';
-import { connectCart } from '@/lib/api';
+import { connectCart, disconnectCart } from '@/lib/api';
 import { clearCartId, loadCartId, saveCartId } from '@/lib/cartStorage';
 
 interface CartSessionValue {
@@ -37,6 +37,9 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
   const [cartId, setCartId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
   const { isRestoring: authRestoring, isAuthenticated } = useAuth();
+  // endSession이 항상 최신 cartId를 참조하도록(콜백 identity는 안정 유지) ref 사용.
+  const cartIdRef = useRef<string | null>(null);
+  cartIdRef.current = cartId;
 
   useEffect(() => {
     loadCartId()
@@ -51,10 +54,13 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const endSession = useCallback(() => {
+    const id = cartIdRef.current;
     setCartId(null);
     clearCartId().catch(() => {
       // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.
     });
+    // 서버 점유 해제(best-effort) — 실패해도 로컬 세션은 이미 정리됨.
+    if (id) disconnectCart(id).catch(() => {});
   }, []);
 
   // 캐스케이드: 회원이 로그아웃하면(복원이 끝난 뒤 비인증) 카트 세션도 종료한다.

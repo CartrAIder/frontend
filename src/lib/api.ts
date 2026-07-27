@@ -297,7 +297,7 @@ function decodeJWT(token: string): { sub: string; email?: string; role?: string;
 // ── 카트 세션 ──────────────────────────────────────────────────────────
 
 export interface ConnectCartResult {
-  cartId: string;
+  cartId: string; // 프론트 세션 식별자 = qrCode
 }
 
 /**
@@ -315,37 +315,55 @@ export async function connectCart(code: string): Promise<ConnectCartResult> {
     return { cartId: trimmed.toUpperCase() };
   }
 
-  return apiFetch<ConnectCartResult>('/api/carts/connect', {
+  // 백엔드: { cartId(number), qrCode, status } 반환
+  // 이후 SSE/수량/삭제 전부 qrCode 기준이므로 세션 식별자 qrCode로 사용.
+  const res = await apiFetch<{ cartId: number; qrCode: string; status: string }>('/api/carts/connect', {
     method: 'POST',
-    body: JSON.stringify({ code: trimmed }),
+    body: JSON.stringify({ qrCode: trimmed }),
   });
+  return { cartId: res.qrCode };
 }
 
 /**
- * 장바구니 상품 수량을 변경한다.
- * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ * 카트 반납 — 담긴 상품 전체 비우기 + 점유(세션) 해제. 서버가 카트를 WAITING으로 되돌린다.
+ * DELETE /api/carts/{qrCode} (소유자만). best-effort: 실패해도 로컬 세션은 정리한다.
  */
-export async function updateItemQty(itemId: string, qty: number): Promise<void> {
+export async function disconnectCart(qrCode: string): Promise<void> {
+  if (USE_MOCK) {
+    await delay(200);
+    return;
+  }
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}`, { method: 'DELETE' });
+}
+
+/**
+ * 장바구니 상품 수량을 지정 수량으로 설정한다.
+ * PATCH /api/carts/{qrCode}/items/{barcode} — body의 `delta`는 (이름과 달리) "설정할 절대 수량"이다.
+ * 0 이하를 보내면 서버가 아이템을 삭제하고 204. 결과는 SSE cart-updated 스냅샷으로도 반영된다.
+ */
+export async function setItemQty(qrCode: string, barcode: string, quantity: number): Promise<void> {
   if (USE_MOCK) {
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/items/${itemId}`, {
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
     method: 'PATCH',
-    body: JSON.stringify({ qty }),
+    body: JSON.stringify({ delta: quantity }),
   });
 }
 
 /**
  * 장바구니 상품을 삭제한다.
- * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ * DELETE /api/carts/{qrCode}/items/{barcode} → 204.
  */
-export async function removeCartItem(itemId: string): Promise<void> {
+export async function removeCartItem(qrCode: string, barcode: string): Promise<void> {
   if (USE_MOCK) {
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/items/${itemId}`, { method: 'DELETE' });
+  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
+    method: 'DELETE',
+  });
 }
 
 export interface PaymentResult {
