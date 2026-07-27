@@ -30,6 +30,7 @@ export default function SignupScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [succeeded, setSucceeded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null); // 서버발(중복 등) 이메일 에러
 
   // 실시간 검증 상태
   const pwChecks = checkPassword(password);
@@ -38,17 +39,27 @@ export default function SignupScreen() {
   const pwValid = isPasswordValid(password);
   const formValid = name.trim().length > 0 && emailOk && pwValid;
 
+  // 이메일 입력칸에 표시할 에러: 서버발(중복) 우선, 없으면 형식 안내
+  const emailFieldError = emailError ?? (emailInvalid ? '이메일 형식을 확인해주세요 (예: you@example.com)' : null);
+
   async function handleSignup() {
     if (submitting || !formValid) return;
     setSubmitting(true);
     setError(null);
+    setEmailError(null);
     try {
       await signup({ name, email, password });
       // 성공 UI를 잠깐 보여준 뒤 홈으로 이동
       setSucceeded(true);
       setTimeout(() => router.replace('/home'), 1200);
     } catch (e) {
-      setError(e instanceof Error ? e.message : '회원가입에 실패했어요. 다시 시도해주세요.');
+      const message = e instanceof Error ? e.message : '회원가입에 실패했어요. 다시 시도해주세요.';
+      // 중복 이메일은 이메일 입력칸에 빨간색으로, 그 외는 하단 에러 박스에 표시
+      if (message.includes('이메일')) {
+        setEmailError(message);
+      } else {
+        setError(message);
+      }
       setSubmitting(false);
     }
   }
@@ -87,22 +98,19 @@ export default function SignupScreen() {
           <View style={{ gap: theme.spacing }}>
             <TextField label="이름" value={name} onChangeText={setName} placeholder="홍길동" autoCapitalize="words" />
 
-            <View style={{ gap: 6 }}>
-              <TextField
-                label="이메일"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-              />
-              {emailInvalid && (
-                <Text style={{ fontSize: theme.fontBody - 3, color: colors.danger }}>
-                  이메일 형식을 확인해주세요 (예: you@example.com)
-                </Text>
-              )}
-            </View>
+            <TextField
+              label="이메일"
+              value={email}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (emailError) setEmailError(null); // 수정 시 서버 에러 해제
+              }}
+              placeholder="you@example.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              error={emailFieldError}
+            />
 
             <View style={{ gap: 8 }}>
               <TextField
