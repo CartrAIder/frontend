@@ -14,12 +14,16 @@ import * as SecureStore from 'expo-secure-store';
 const MEMBER_STORAGE_KEY = 'cartraider.member';
 const ACCOUNT_STORAGE_KEY = 'cartraider.account';
 
+/** 회원 권한 — 'admin'만 홈에서 관리자 페이지에 들어갈 수 있다. */
+export type MemberRole = 'user' | 'admin';
+
 /** 로그인된 회원 세션(앱 재시작 후에도 유지). */
 export interface MemberSession {
   id: string;
   name: string;
   email: string;
   token: string;
+  role: MemberRole;
 }
 
 /** 회원가입 시 로컬에 저장하는 자격 증명(로그인 시 대조용, mock 전용). */
@@ -32,7 +36,10 @@ export interface RegisteredAccount {
 export async function loadMemberSession(): Promise<MemberSession | null> {
   try {
     const raw = await SecureStore.getItemAsync(MEMBER_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as MemberSession) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MemberSession;
+    // role 도입 이전에 저장된 세션은 일반 회원으로 간주한다.
+    return { ...parsed, role: parsed.role === 'admin' ? 'admin' : 'user' };
   } catch {
     return null;
   }

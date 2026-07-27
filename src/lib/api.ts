@@ -9,6 +9,7 @@ import {
   loadAccount,
   loadMemberSession,
   saveAccount,
+  type MemberRole,
   type MemberSession,
 } from './authStorage';
 
@@ -31,7 +32,12 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${path}`);
   }
-  return (await res.json()) as T;
+  // 204 or empty body 대응 (삭제, 수량이 0일때, 로그아웃...등)
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 // ── 회원 인증 ──────────────────────────────────────────────────────────
@@ -43,9 +49,20 @@ export interface SignupInput {
 }
 
 export interface AuthResult {
-  member: { id: string; name: string; email: string };
+  member: { id: string; name: string; email: string; role: MemberRole };
   token: string;
 }
+
+/**
+ * 시연용 관리자 계정 (mock 전용).
+ * 회원가입으로는 만들 수 없고, 이 자격 증명으로 로그인해야만 role: 'admin'이 발급된다.
+ * TODO(api): 실서버 연동 시 역할은 백엔드가 내려주므로 이 상수는 삭제한다.
+ */
+export const DEMO_ADMIN = {
+  email: 'admin@cartraider.com',
+  password: 'admin1234',
+  name: '매장 관리자',
+} as const;
 
 /** AuthResult(REST 응답)를 secure-store에 저장할 회원 세션 형태로 변환한다. */
 export function toSession(result: AuthResult): MemberSession {
@@ -54,6 +71,7 @@ export function toSession(result: AuthResult): MemberSession {
     name: result.member.name,
     email: result.member.email,
     token: result.token,
+    role: result.member.role,
   };
 }
 
@@ -71,14 +89,19 @@ export async function signupMember(input: SignupInput): Promise<AuthResult> {
 
   if (USE_MOCK) {
     await delay(600);
+    if (email === DEMO_ADMIN.email) {
+      throw new Error('이미 사용 중인 이메일이에요.');
+    }
     await saveAccount({ name, email, password });
-    return { member: { id: email, name, email }, token: `mock-jwt-${email}` };
+    return { member: { id: email, name, email, role: 'user' }, token: `mock-jwt-${email}` };
   }
 
-  return apiFetch<AuthResult>('/api/auth/signup', {
+  // 실서버: 회원 생성만 하고 토큰은 주지 않으므로, 가입 직후 곧바로 로그인해 세션을 발급받는다.
+  await apiFetch<{ id: number; email: string; name: string; role: string }>('/api/users/signup', {
     method: 'POST',
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ email, password, name }),
   });
+  return loginMember(email, password);
 }
 
 /**
@@ -93,6 +116,18 @@ export async function loginMember(email: string, password: string): Promise<Auth
 
   if (USE_MOCK) {
     await delay(600);
+
+    // 관리자 계정은 로컬 가입 계정과 별개로 먼저 대조한다.
+    if (normalizedEmail === DEMO_ADMIN.email) {
+      if (password !== DEMO_ADMIN.password) {
+        throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
+      }
+      return {
+        member: { id: DEMO_ADMIN.email, name: DEMO_ADMIN.name, email: DEMO_ADMIN.email, role: 'admin' },
+        token: `mock-jwt-admin-${DEMO_ADMIN.email}`,
+      };
+    }
+
     const account = await loadAccount();
     if (!account) {
       throw new Error('가입된 계정이 없어요. 먼저 회원가입을 해주세요.');
@@ -101,15 +136,59 @@ export async function loginMember(email: string, password: string): Promise<Auth
       throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
     }
     return {
-      member: { id: account.email, name: account.name, email: account.email },
+      member: { id: account.email, name: account.name, email: account.email, role: 'user' },
       token: `mock-jwt-${account.email}`,
     };
   }
 
-  return apiFetch<AuthResult>('/api/auth/login', {
+  // 실서버: 응답 body는 비어있고 액세스 토큰은 Authorization 응답 헤더로 온다.
+  // (리프레시 토큰은 refreshToken 쿠키. 웹에서는 credentials: 'include'로 저장한다.)
+  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ email: normalizedEmail, password }),
   });
+  if (!res.ok) {
+    throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
+  }
+
+  const authHeader = res.headers.get('authorization') ?? res.headers.get('Authorization');
+  const token = authHeader?.replace(/^Bearer\s+/i, '') ?? '';
+  if (!token) {
+    throw new Error('로그인 토큰을 받지 못했습니다.');
+  }
+
+  // 로그인 응답에 회원정보가 없어 JWT에서 추출한다. (name은 토큰에 없어 이메일 앞부분으로 임시 표시)
+  // TODO(api): 백엔드가 name을 내려주면(로그인 응답 body 또는 /api/users/me) 교체한다.
+  const claims = decodeJWT(token);
+  const role: MemberRole = claims.role === 'ADMIN' ? 'admin' : 'user';
+  const memberEmail = claims.email ?? normalizedEmail;
+  return {
+    member: {
+      id: claims.sub,
+      name: memberEmail.split('@')[0],
+      email: memberEmail,
+      role,
+    },
+    token,
+  };
+}
+
+/** JWT payload 디코드 (검증X, 표시용 정보 추출). RN/웹 공통(atob 없으면 Buffer). */
+function decodeJWT(token: string): { sub: string; email?: string; role?: string } {
+  const payload = token.split('.')[1];
+  const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+  const json =
+    typeof atob === 'function'
+      ? decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+            .join(''),
+        )
+      : Buffer.from(base64, 'base64').toString('utf-8');
+  return JSON.parse(json);
 }
 
 // ── 카트 세션 ──────────────────────────────────────────────────────────

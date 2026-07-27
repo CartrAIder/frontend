@@ -10,11 +10,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { loginMember, signupMember, toSession, type SignupInput } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
-export type Member = Pick<MemberSession, 'id' | 'name' | 'email'>;
+export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
 
 interface AuthContextValue {
   member: Member | null;
   isAuthenticated: boolean;
+  /** 관리자 계정 여부 — 홈의 관리자 버튼·`/admin` 라우트 가드가 이 값을 본다. */
+  isAdmin: boolean;
   isRestoring: boolean;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
@@ -65,8 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      member: session ? { id: session.id, name: session.name, email: session.email } : null,
+      member: session
+        ? { id: session.id, name: session.name, email: session.email, role: session.role }
+        : null,
       isAuthenticated: session !== null,
+      isAdmin: session?.role === 'admin',
       isRestoring,
       token: session?.token ?? null,
       login,
