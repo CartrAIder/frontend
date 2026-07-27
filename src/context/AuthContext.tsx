@@ -7,7 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { loginMember, signupMember, toSession, type SignupInput } from '@/lib/api';
+import { loginMember, logoutMember, signupMember, toSession, type SignupInput } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
 export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
@@ -58,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    // 서버 refresh 토큰 무효화(best-effort) — 실패해도 로컬 로그아웃은 진행.
+    logoutMember().catch(() => {});
     setSession(null);
     clearMemberSession().catch(() => {
       // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.

@@ -15,6 +15,8 @@ import {
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 const USE_MOCK = (process.env.EXPO_PUBLIC_USE_MOCK ?? 'true') !== 'false';
+/** mock 모드 여부 — 화면에서 시연용 UI(데모 관리자 버튼 등) 노출 조건으로 사용. */
+export const IS_MOCK = USE_MOCK;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -227,6 +229,20 @@ export async function loginMember(email: string, password: string): Promise<Auth
     },
     token,
   };
+}
+
+/**
+ * 로그아웃 — 서버의 refresh 토큰을 무효화한다. (best-effort: 실패해도 로컬 세션은 정리한다)
+ * 백엔드는 쿠키의 refreshToken을 읽으므로 credentials: 'include'로 호출한다.
+ * TODO(api): 쿠키를 못 싣는 모바일 환경 대응은 백엔드 협의 후 보완.
+ */
+export async function logoutMember(): Promise<void> {
+  if (USE_MOCK) return;
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch {
+    // 네트워크 실패 등은 무시 — 로컬 로그아웃은 그대로 진행한다.
+  }
 }
 
 /** JWT payload 디코드 (검증X, 표시용 정보 추출). RN/웹 공통(atob 없으면 Buffer). */
