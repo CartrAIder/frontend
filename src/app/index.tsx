@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/context/AuthContext';
 import { useCartSession } from '@/context/CartSessionContext';
@@ -20,7 +20,11 @@ export default function IndexGate() {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
         <View style={[styles.logoBadge, { backgroundColor: colors.primary }]}>
-          <Text style={styles.logoEmoji}>🛒</Text>
+          <Image
+            source={require('../../assets/logo/mark-white-512.png')}
+            style={styles.logoMark}
+            resizeMode="contain"
+          />
         </View>
         <Text style={{ fontSize: theme.fontDisplay, color: colors.text, fontWeight: '800', letterSpacing: 0.3 }}>
           CartrAIder
@@ -37,5 +41,5 @@ export default function IndexGate() {
 const styles = StyleSheet.create({
   splash: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   logoBadge: { width: 92, height: 92, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
-  logoEmoji: { fontSize: 48 },
+  logoMark: { width: 56, height: 56 },
 });

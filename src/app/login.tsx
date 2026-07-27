@@ -1,6 +1,7 @@
 import { Link, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -56,7 +57,11 @@ export default function LoginScreen() {
         >
           <View style={styles.brand}>
             <View style={[styles.logoBadge, { backgroundColor: colors.primary }]}>
-              <Text style={styles.logoEmoji}>🛒</Text>
+              <Image
+                source={require('../../assets/logo/mark-white-512.png')}
+                style={styles.logoMark}
+                resizeMode="contain"
+              />
             </View>
             <Text style={[styles.appName, { fontSize: theme.fontDisplay, color: colors.text }]}>
               CartrAIder
@@ -159,7 +164,7 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   brand: { alignItems: 'center', gap: 12, marginTop: 28, marginBottom: 20 },
   logoBadge: { width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  logoEmoji: { fontSize: 44 },
+  logoMark: { width: 52, height: 52 },
   appName: { fontWeight: '800', letterSpacing: 0.3 },
   errorBox: { borderWidth: 1, borderRadius: 10, padding: 12 },
   demoHint: { borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 12, marginTop: 4 },
