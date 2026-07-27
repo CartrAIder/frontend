@@ -49,17 +49,18 @@ export interface CartStream {
 
 type CartEventName = 'connected' | 'cart-init' | 'cart-updated' | 'cart-closed';
 
-async function connectRealCartStream(handlers: CartStreamHandlers): Promise<CartStream> {
-  // 1) 티켓 발급 (액세스 토큰은 apiFetch가 자동 첨부)
-  const { ticket } = await apiFetch<{ ticket: string; expiresInSeconds: number }>(
-    '/api/carts/sse-ticket',
-    { method: 'POST' },
-  );
+const RECONNECT_MAX_DELAY = 10000; // 재연결 백오프 상한(ms)
 
-  // 2) 티켓으로 구독 (토큰은 URL에 싣지 않고 단명 티켓만 전달)
-  const es = new EventSource<CartEventName>(
-    `${API_BASE_URL}/api/carts/subscribe?ticket=${encodeURIComponent(ticket)}`,
-  );
+/**
+ * 실서버 SSE 연결 + 수동 재연결.
+ * 구독은 1회용 티켓 기반이라 EventSource 내장 자동재연결(같은 URL 재시도)은 못 쓴다(pollingInterval: 0).
+ * 대신 끊기면 우리가 새 티켓을 발급받아 다시 구독한다(지수 백오프).
+ */
+function connectRealCartStream(handlers: CartStreamHandlers): CartStream {
+  let closed = false;
+  let es: EventSource<CartEventName> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
 
   const handleSnapshot = (event: { data?: string | null }) => {
     if (!event.data) return;
@@ -70,13 +71,68 @@ async function connectRealCartStream(handlers: CartStreamHandlers): Promise<Cart
     }
   };
 
-  es.addEventListener('connected', () => handlers.onOpen?.());
-  es.addEventListener('cart-init', handleSnapshot);
-  es.addEventListener('cart-updated', handleSnapshot);
-  es.addEventListener('cart-closed', () => handlers.onClosed?.());
-  es.addEventListener('error', (error) => handlers.onError?.(error));
+  const scheduleReconnect = () => {
+    if (closed || reconnectTimer) return;
+    attempt += 1;
+    const delay = Math.min(1000 * 2 ** (attempt - 1), RECONNECT_MAX_DELAY); // 1s,2s,4s,…,10s
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void open();
+    }, delay);
+  };
 
-  return { close: () => es.close() };
+  const open = async () => {
+    if (closed) return;
+    try {
+      // 1) 매 연결마다 새 티켓 발급 (액세스 토큰은 apiFetch가 자동 첨부)
+      const { ticket } = await apiFetch<{ ticket: string; expiresInSeconds: number }>(
+        '/api/carts/sse-ticket',
+        { method: 'POST' },
+      );
+      if (closed) return;
+
+      // 2) 티켓으로 구독. pollingInterval: 0 → 내장 자동재연결 비활성(써버린 티켓 재시도 방지)
+      const source = new EventSource<CartEventName>(
+        `${API_BASE_URL}/api/carts/subscribe?ticket=${encodeURIComponent(ticket)}`,
+        { pollingInterval: 0 },
+      );
+      es = source;
+
+      source.addEventListener('connected', () => {
+        attempt = 0; // 정상 연결되면 백오프 초기화
+        handlers.onOpen?.();
+      });
+      source.addEventListener('cart-init', handleSnapshot);
+      source.addEventListener('cart-updated', handleSnapshot);
+      source.addEventListener('cart-closed', () => handlers.onClosed?.());
+      source.addEventListener('error', (error) => {
+        if (closed) return;
+        handlers.onError?.(error); // 화면은 '재연결 중'으로
+        source.close();
+        if (es === source) es = null;
+        scheduleReconnect();
+      });
+    } catch (error) {
+      // 티켓 발급 실패 등 → 잠시 후 재시도
+      if (closed) return;
+      handlers.onError?.(error);
+      scheduleReconnect();
+    }
+  };
+
+  void open();
+
+  return {
+    close() {
+      closed = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      es?.close();
+      es = null;
+    },
+  };
 }
 
 // ── mock SSE (USE_MOCK) ────────────────────────────────────────────────
@@ -148,7 +204,7 @@ function connectMockCartStream(handlers: CartStreamHandlers): CartStream {
   };
 }
 
-/** 장바구니 실시간 스트림 연결. 실서버는 티켓 발급이 필요해 Promise를 반환한다. */
+/** 장바구니 실시간 스트림 연결. 연결·재연결은 내부에서 비동기로 처리되고 스트림 핸들은 즉시 반환된다. */
 export function connectCartStream(handlers: CartStreamHandlers): Promise<CartStream> {
-  return USE_MOCK ? Promise.resolve(connectMockCartStream(handlers)) : connectRealCartStream(handlers);
+  return Promise.resolve(USE_MOCK ? connectMockCartStream(handlers) : connectRealCartStream(handlers));
 }
