@@ -148,9 +148,60 @@ export function toSession(result: AuthResult): MemberSession {
   };
 }
 
+// ── 이메일 인증 (회원가입 전 단계) ──────────────────────────────────────
+// 서버는 회원가입 시 이메일 인증을 요구한다: 발송(6자리 코드) → 확인 → 가입.
+// mock 모드에서는 네트워크 없이 흐름만 시연한다(테스트 코드 000000).
+
+/** mock 인증에서 통과 처리하는 고정 코드. 실서버에서는 사용되지 않는다. */
+export const MOCK_VERIFICATION_CODE = '000000';
+
+/**
+ * 인증번호 발송. 성공하면 서버가 6자리 코드를 이메일로 보낸다(코드 10분·재발송 1분 제한).
+ * 실패 예: 이미 가입된 이메일(409), 재발송 쿨다운(429), 메일 발송 실패(502).
+ * POST /api/email-verifications { email }
+ */
+export async function sendEmailVerification(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  if (!isEmailValid(normalized)) {
+    throw new Error('이메일 형식을 확인해주세요 (예: you@example.com)');
+  }
+  if (USE_MOCK) {
+    await delay(600);
+    return; // 실제 발송 없음 — 확인 단계에서 000000 입력
+  }
+  await apiFetch<{ message: string }>('/api/email-verifications', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized }),
+  });
+}
+
+/**
+ * 인증번호 확인. 6자리 코드가 맞으면 서버가 해당 이메일을 "인증됨"으로 표시한다(30분 유효).
+ * 실패 예: 코드 불일치(400), 만료/미존재(400).
+ * POST /api/email-verifications/confirm { email, code }
+ */
+export async function confirmEmailVerification(email: string, code: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  const trimmedCode = code.trim();
+  if (!/^\d{6}$/.test(trimmedCode)) {
+    throw new Error('인증번호 6자리를 입력해주세요.');
+  }
+  if (USE_MOCK) {
+    await delay(400);
+    if (trimmedCode !== MOCK_VERIFICATION_CODE) {
+      throw new Error('인증번호가 일치하지 않습니다.');
+    }
+    return;
+  }
+  await apiFetch<{ message: string }>('/api/email-verifications/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized, code: trimmedCode }),
+  });
+}
+
 /**
  * 회원가입. mock에서는 계정을 로컬(secure-store)에 저장하고 바로 로그인 세션을 발급한다.
- * TODO(api): 실제 Spring Boot 연동 시 mock 분기를 `POST /api/auth/signup`으로 교체.
+ * 실서버에서는 이메일 인증(sendEmailVerification→confirmEmailVerification)을 먼저 마쳐야 한다.
  */
 export async function signupMember(input: SignupInput): Promise<AuthResult> {
   const name = input.name.trim();
