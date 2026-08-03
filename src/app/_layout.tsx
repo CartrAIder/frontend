@@ -14,8 +14,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ModeProvider>
-          <CatalogProvider>
-            <AuthProvider>
+          <AuthProvider>
+            <CatalogProvider>
               <CartSessionProvider>
                 <CartProvider>
                   <StatusBar style="auto" />
@@ -32,7 +32,6 @@ export default function RootLayout() {
                       name="complete"
                       options={{ title: '결제 완료', headerBackVisible: false, gestureEnabled: false }}
                     />
-                    <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
                     <Stack.Screen name="map" options={{ title: '매장 지도' }} />
                     <Stack.Screen name="products" options={{ title: '상품 보기' }} />
                     <Stack.Screen name="product/[id]" options={{ title: '상품 상세' }} />
@@ -41,8 +40,8 @@ export default function RootLayout() {
                   </Stack>
                 </CartProvider>
               </CartSessionProvider>
-            </AuthProvider>
-          </CatalogProvider>
+            </CatalogProvider>
+          </AuthProvider>
         </ModeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

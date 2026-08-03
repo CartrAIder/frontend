@@ -41,11 +41,12 @@ function ProductForm({ editing }: { editing?: Product }) {
   const { colors } = theme;
   const router = useRouter();
   const navigation = useNavigation();
-  const { shelfZones, addProduct, updateProduct } = useCatalog();
+  const { shelfZones, createProduct, editProduct } = useCatalog();
 
   const isEdit = Boolean(editing);
 
   const [name, setName] = useState(editing?.name ?? '');
+  const [barcode, setBarcode] = useState('');
   const [brand, setBrand] = useState(editing?.brand ?? '');
   const [price, setPrice] = useState(editing ? String(editing.unitPrice) : '');
   const [stock, setStock] = useState(editing ? String(editing.stock) : '0');
@@ -54,18 +55,22 @@ function ProductForm({ editing }: { editing?: Product }) {
   const [icon, setIcon] = useState(editing?.icon ?? ICON_CHOICES[0]);
   const [zone, setZone] = useState(editing?.zone ?? shelfZones[0]?.id ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({ title: isEdit ? '상품 수정' : '새 상품 등록' });
   }, [navigation, isEdit]);
 
-  function handleSave() {
+  async function handleSave() {
+    if (submitting) return;
     const trimmedName = name.trim();
+    const trimmedBarcode = barcode.trim();
     const parsedPrice = Number(price.replace(/[^0-9]/g, ''));
     const parsedStock = Number(stock.replace(/[^0-9]/g, ''));
     const parsedDiscount = discount.trim() ? Number(discount.replace(/[^0-9]/g, '')) : 0;
 
     if (!trimmedName) return setError('상품명을 입력해주세요.');
+    if (!isEdit && !trimmedBarcode) return setError('바코드를 입력해주세요.');
     if (!parsedPrice || parsedPrice <= 0) return setError('판매 가격을 숫자로 입력해주세요.');
     if (parsedDiscount < 0 || parsedDiscount > 90) return setError('할인율은 0~90 사이로 입력해주세요.');
     if (!zone) return setError('매장 구역을 선택해주세요.');
@@ -81,12 +86,20 @@ function ProductForm({ editing }: { editing?: Product }) {
       zone,
     };
 
-    if (editing) {
-      updateProduct(editing.id, draft);
-    } else {
-      addProduct(draft);
+    setSubmitting(true);
+    setError(null);
+    try {
+      if (editing) {
+        await editProduct(editing.id, draft);
+      } else {
+        await createProduct(draft, trimmedBarcode);
+      }
+      router.back();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '저장에 실패했어요. 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
     }
-    router.back();
   }
 
   return (
@@ -114,6 +127,19 @@ function ProductForm({ editing }: { editing?: Product }) {
           {/* 기본 정보 */}
           <Card style={{ gap: theme.spacing }}>
             <TextField label="상품명 *" value={name} onChangeText={setName} placeholder="예) 서울우유 1L" />
+            {isEdit ? (
+              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+                바코드 {editing?.id} · 이름·카테고리는 서버에서 변경되지 않아요(가격·재고·표시만 반영).
+              </Text>
+            ) : (
+              <TextField
+                label="바코드 *"
+                value={barcode}
+                onChangeText={setBarcode}
+                placeholder="예) 8801234567999"
+                keyboardType="number-pad"
+              />
+            )}
             <TextField label="브랜드" value={brand} onChangeText={setBrand} placeholder="예) 서울우유" />
             <TextField
               label="판매 가격 (원) *"
@@ -215,7 +241,12 @@ function ProductForm({ editing }: { editing?: Product }) {
 
           {error && <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger }}>{error}</Text>}
 
-          <PrimaryButton title={isEdit ? '수정 저장' : '상품 등록'} leadingIcon="💾" onPress={handleSave} />
+          <PrimaryButton
+            title={isEdit ? '수정 저장' : '상품 등록'}
+            leadingIcon="💾"
+            onPress={handleSave}
+            loading={submitting}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

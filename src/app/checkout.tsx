@@ -5,46 +5,108 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { useCartSession } from '@/context/CartSessionContext';
+import { TossPaymentModal, type TossFail, type TossSuccess } from '@/components/TossPaymentModal';
+import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { useTheme } from '@/context/ModeContext';
-import { requestPayment } from '@/lib/api';
+import {
+  confirmPayment,
+  createOrder,
+  createPaymentAttempt,
+  fetchProducts,
+  getTossClientKey,
+  type OrderDraft,
+  type PaymentAttempt,
+} from '@/lib/api';
 
 function formatWon(amount: number): string {
   return `₩${amount.toLocaleString('ko-KR')}`;
 }
 
-const PAYMENT_METHODS = [
-  { name: '카카오페이', icon: '💛' },
-  { name: '신용카드', icon: '💳' },
-];
+/** 결제창에 넘길 세션 정보 — 주문·결제시도·클라이언트키를 한데 묶는다. */
+interface TossSession {
+  clientKey: string;
+  order: OrderDraft;
+  attempt: PaymentAttempt;
+}
 
-/** (3) 결제 확인 화면 — 주문 요약을 보여주고 1탭으로 결제(mock)를 확정한다. */
+/** (3) 결제 확인 화면 — 주문을 생성하고 토스 결제창을 띄운 뒤 승인까지 처리한다. */
 export default function CheckoutScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { cartId } = useCartSession();
   const cart = useCart();
+  const { member } = useAuth();
 
-  const [methodIndex, setMethodIndex] = useState(0);
-  const [paying, setPaying] = useState(false);
+  const [preparing, setPreparing] = useState(false); // 주문 생성~결제창 오픈 준비 중
+  const [confirming, setConfirming] = useState(false); // 토스 승인 처리 중
   const [error, setError] = useState<string | null>(null);
-  const method = PAYMENT_METHODS[methodIndex];
+  const [toss, setToss] = useState<TossSession | null>(null); // 값이 있으면 결제창 표시
 
-  async function handleConfirm() {
-    if (paying) return;
-    setPaying(true);
+  const busy = preparing || confirming;
+
+  /** 결제하기 — 장바구니를 주문으로 만들고 결제 시도를 생성한 뒤 토스 결제창을 연다. */
+  async function handlePay() {
+    if (busy || cart.items.length === 0) return;
+    setPreparing(true);
     setError(null);
     try {
-      const result = await requestPayment(cartId ?? 'UNKNOWN', cart.total);
+      // 장바구니 아이템(바코드) → 백엔드 상품 id 로 변환
+      const products = await fetchProducts();
+      const idByBarcode = new Map(products.map((p) => [p.barcode, p.id]));
+      const items: { productId: number; quantity: number }[] = [];
+      for (const item of cart.items) {
+        const productId = idByBarcode.get(item.id);
+        if (productId == null) {
+          throw new Error(`상품 정보를 찾을 수 없어요: ${item.name}`);
+        }
+        items.push({ productId, quantity: item.qty });
+      }
+
+      const order = await createOrder(items);
+      const attempt = await createPaymentAttempt(order.orderId);
+      const clientKey = await getTossClientKey();
+      setToss({ clientKey, order, attempt });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '결제 준비에 실패했어요. 다시 시도해주세요.');
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  /** 토스 결제 성공 → 서버 승인 → 완료 화면. */
+  async function handleTossSuccess(result: TossSuccess) {
+    if (!toss) return;
+    setConfirming(true);
+    setError(null);
+    try {
+      const res = await confirmPayment({
+        paymentKey: result.paymentKey,
+        orderId: toss.order.orderId,
+        amount: toss.order.totalAmount,
+        paymentAttemptId: toss.attempt.paymentAttemptId,
+      });
+      if (res.status !== 'APPROVED') {
+        throw new Error(res.message || '결제 승인에 실패했어요.');
+      }
+      setToss(null);
       router.replace({
         pathname: '/complete',
-        params: { receiptId: result.receiptId, amount: String(cart.total) },
+        params: { receiptId: toss.order.orderId, amount: String(toss.order.totalAmount) },
       });
-    } catch {
-      setError('결제에 실패했어요. 다시 시도해주세요.');
-      setPaying(false);
+    } catch (e) {
+      setToss(null);
+      setError(e instanceof Error ? e.message : '결제 승인에 실패했어요. 다시 시도해주세요.');
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  /** 토스 결제 실패/취소. 사용자가 닫은 경우(USER_CANCEL)는 조용히 닫는다. */
+  function handleTossFail(fail: TossFail) {
+    setToss(null);
+    if (fail.code !== 'USER_CANCEL' && fail.code !== 'PAY_PROCESS_CANCELED') {
+      setError(fail.message);
     }
   }
 
@@ -70,21 +132,6 @@ export default function CheckoutScreen() {
           </View>
         </Card>
 
-        <Pressable onPress={() => setMethodIndex((i) => (i + 1) % PAYMENT_METHODS.length)}>
-          <Card style={styles.methodRow}>
-            <View style={[styles.methodIcon, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-              <Text style={{ fontSize: 22 }}>{method.icon}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>결제 수단</Text>
-              <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>{method.name}</Text>
-            </View>
-            <View style={[styles.changeChip, { backgroundColor: colors.primarySurface, borderRadius: theme.radiusSm }]}>
-              <Text style={{ fontSize: theme.fontBody - 3, color: colors.primary, fontWeight: '700' }}>변경</Text>
-            </View>
-          </Card>
-        </Pressable>
-
         <View style={[styles.totalBox, { backgroundColor: colors.successSurface, borderRadius: theme.radius, padding: theme.spacing + 4 }]}>
           <Text style={{ fontSize: theme.fontBody - 1, color: colors.text }}>최종 결제 금액</Text>
           <Text style={{ fontSize: theme.fontDisplay, color: colors.text, fontWeight: '800' }}>{formatWon(cart.total)}</Text>
@@ -98,20 +145,39 @@ export default function CheckoutScreen() {
       <View style={{ gap: theme.spacing / 2, paddingBottom: 8 }}>
         <View style={[styles.tipBanner, { backgroundColor: colors.warningSurface, borderRadius: theme.radiusSm }]}>
           <Text style={{ fontSize: theme.fontBody - 3, color: colors.warningText, textAlign: 'center' }}>
-            결제는 2번만 누르면 완료돼요 (결제하기 → 결제 확인)
+            결제하기를 누르면 토스 결제창에서 카드 정보를 입력해요
           </Text>
         </View>
         <PrimaryButton
-          title={`${formatWon(cart.total)} 결제하기`}
-          onPress={handleConfirm}
-          loading={paying}
+          title={confirming ? '결제 확인 중…' : `${formatWon(cart.total)} 결제하기`}
+          onPress={handlePay}
+          loading={busy}
           disabled={cart.items.length === 0}
           variant="success"
         />
-        <Pressable onPress={() => router.back()} disabled={paying} style={styles.cancelButton} hitSlop={8}>
+        <Pressable
+          onPress={() => router.back()}
+          disabled={busy}
+          style={[styles.cancelButton, { minHeight: theme.minTouch, justifyContent: 'center' }]}
+          hitSlop={8}
+        >
           <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, textAlign: 'center' }}>취소</Text>
         </Pressable>
       </View>
+
+      {toss && (
+        <TossPaymentModal
+          visible
+          clientKey={toss.clientKey}
+          orderId={toss.order.orderId}
+          orderName={toss.order.orderName}
+          amount={toss.order.totalAmount}
+          customerName={member?.name}
+          onSuccess={handleTossSuccess}
+          onFail={handleTossFail}
+          onCancel={() => setToss(null)}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -120,9 +186,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20 },
   orderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, gap: 12 },
   divider: { height: 1, marginVertical: 6 },
-  methodRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  methodIcon: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
-  changeChip: { paddingHorizontal: 12, paddingVertical: 7 },
   totalBox: { gap: 4 },
   tipBanner: { paddingVertical: 10, paddingHorizontal: 12 },
   cancelButton: { paddingVertical: 10 },

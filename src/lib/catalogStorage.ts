@@ -1,18 +1,18 @@
 /**
- * secure-store 기반 매장 카탈로그(상품 + 구역) 저장소.
+ * secure-store 기반 매장 카탈로그 로컬 레이어 저장소.
  *
- * 백엔드 상품/매장 API가 아직 없어서 관리자 페이지의 등록·수정 결과를 로컬에 보관한다.
+ * 하이브리드: 상품 자체는 백엔드(GET /api/products)가 진실원천이고, 여기에는
+ * 앱 표현 레이어만 보관한다 — 관리자 편집/로컬추가/삭제 오버레이(barcode 기준),
+ * 매장 구역(zones, 앱 로컬), 그리고 오프라인 즉시표시용 마지막 상품 캐시(cachedProducts).
  *
  * secure-store는 값 하나가 2048바이트를 넘으면 경고와 함께 저장에 실패할 수 있어
- * (Android), 카탈로그 JSON을 청크로 쪼개 여러 키에 나눠 저장한다. 청크 개수는
- * 인덱스 키에 기록해 두고 읽을 때 이어 붙인다.
- *
- * TODO(api): Sprint 6에서 `GET/POST/PATCH /api/admin/products`·`/api/admin/zones`로 교체하면
- * 이 모듈은 통째로 삭제할 수 있다.
+ * (Android), JSON을 청크로 쪼개 여러 키에 나눠 저장한다. 청크 개수는 인덱스 키에
+ * 기록해 두고 읽을 때 이어 붙인다.
  */
 import * as SecureStore from 'expo-secure-store';
 
-import type { Product } from './mock/products';
+import type { ApiProduct } from './api';
+import type { OverlayMap } from './catalog/overlay';
 import type { StoreZone } from './mock/storeMap';
 
 const INDEX_KEY = 'cartraider.catalog.index';
@@ -22,13 +22,17 @@ const CHUNK_SIZE = 600;
 /** 오래된 청크를 지울 때 훑어볼 최대 개수 (안전 상한). */
 const MAX_CHUNKS = 64;
 
-/** 시드 스키마가 바뀌면 올린다. 저장본 버전이 낮으면 버리고 시드로 다시 시작한다. */
-export const CATALOG_VERSION = 1;
+/** 저장 스키마가 바뀌면 올린다. 저장본 버전이 낮으면 버린다. (v1=구 mock 전체상품 저장) */
+export const CATALOG_VERSION = 2;
 
 export interface StoredCatalog {
   version: number;
-  products: Product[];
+  /** barcode 기준 로컬 오버레이(관리자 편집/추가/삭제). */
+  overlay: OverlayMap;
+  /** 매장 매대 구역(앱 로컬). */
   zones: StoreZone[];
+  /** 마지막으로 받은 백엔드 상품 목록 — 오프라인/기동 직후 즉시 표시용 캐시. */
+  cachedProducts: ApiProduct[];
 }
 
 interface CatalogIndex {

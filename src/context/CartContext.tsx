@@ -18,7 +18,7 @@ import {
 } from 'react';
 
 import { useCartSession } from '@/context/CartSessionContext';
-import { removeCartItem, setItemQty } from '@/lib/api';
+import { fetchCurrentCart, removeCartItem, setItemQty } from '@/lib/api';
 import { loadCart, saveCart, type CartItem } from '@/lib/cartStorage';
 import { connectCartStream, type CartSnapshot, type CartStream } from '@/lib/sse';
 
@@ -161,7 +161,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
     let active = true;
 
     connectCartStream({
-      onOpen: () => dispatch({ type: 'CONNECTION_STATUS', status: 'open' }),
+      onOpen: () => {
+        dispatch({ type: 'CONNECTION_STATUS', status: 'open' });
+        // SSE는 구독 시점의 현재 장바구니를 내려주지 않으므로(cart-init은 구독 이전 발행),
+        // (재)접속마다 현재 카트를 REST로 받아 반영한다. 오래된 version은 리듀서가 무시한다. (#14)
+        fetchCurrentCart()
+          .then((snapshot) => {
+            if (snapshot) dispatch({ type: 'SNAPSHOT', snapshot });
+          })
+          .catch(() => {
+            // 조회 실패는 무시 — 이후 SSE 스냅샷으로 정정된다.
+          });
+      },
       onSnapshot: (snapshot) => dispatch({ type: 'SNAPSHOT', snapshot }),
       onClosed: () => dispatch({ type: 'RESET' }),
       onError: () => dispatch({ type: 'CONNECTION_STATUS', status: 'connecting' }), // 끊김 → 자동 재연결 중

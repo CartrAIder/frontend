@@ -8,6 +8,7 @@
  */
 
 export interface Product {
+  /** 화면/카트 공통 키. 하이브리드에서는 백엔드 상품의 barcode(로컬 추가 상품은 local-…). */
   id: string;
   name: string;
   unitPrice: number;
@@ -21,6 +22,12 @@ export interface Product {
   /** 상품 상세 화면에 보여줄 한 줄 설명. */
   description?: string;
   brand?: string;
+  /** 백엔드 상품 id(Long). 관리자 수정/삭제 시 서버 호출에 쓴다. 로컬 전용 상품엔 없다. */
+  backendId?: number;
+  /** 백엔드 카테고리(한글). 오버레이가 매대 구역·아이콘을 파생하는 근거. */
+  category?: string;
+  /** 백엔드 판매 상태(ON_SALE / SOLD_OUT). */
+  status?: string;
 }
 
 export const DEFAULT_PRODUCTS: Product[] = [

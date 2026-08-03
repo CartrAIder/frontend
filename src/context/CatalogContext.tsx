@@ -1,11 +1,13 @@
 /**
  * 매장 카탈로그 전역 상태 — 상품 목록 + 매장 구역.
  *
- * 고객 화면(상품 보기·매장 지도·길 안내·오늘의 할인)과 관리자 화면(상품 등록·지도 편집)이
- * 같은 데이터를 본다. 최초 실행 시 mock 시드로 채워지고, 이후 변경분은 secure-store에
- * 영속화되어 앱을 재시작해도 유지된다.
+ * 하이브리드: 상품은 백엔드(GET /api/products)가 진실원천이고, 앱은 여기에 로컬 표현 레이어
+ * (아이콘·매대 구역·할인·재고)를 barcode 기준 오버레이로 얹어 병합해 보여준다. 고객 화면
+ * (상품 보기·매장 지도·길 안내·오늘의 할인)과 관리자 화면이 같은 병합 결과를 본다.
  *
- * TODO(api): 백엔드 상품/매장 API 확정 시 CRUD 함수의 본문만 REST 호출로 교체한다.
+ * - 로그인되면 백엔드 상품을 새로고침한다(상품 조회는 인증 필요).
+ * - 오버레이/구역/마지막 상품 캐시는 secure-store에 영속화되어 오프라인·재시작에도 즉시 표시된다.
+ * - 관리자 CRUD는 현재 로컬 오버레이만 갱신한다. (백엔드 쓰기 연동은 #13에서)
  */
 import {
   createContext,
@@ -17,12 +19,21 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useAuth } from '@/context/AuthContext';
+import {
+  adminCreateProduct,
+  adminUpdateProduct,
+  fetchProducts,
+  type ApiProduct,
+  type ApiProductStatus,
+} from '@/lib/api';
+import { categoryForZone, mergeCatalog, type OverlayMap, type ProductOverlay } from '@/lib/catalog/overlay';
 import { clearCatalog, loadCatalog, saveCatalog } from '@/lib/catalogStorage';
-import { DEFAULT_PRODUCTS, type Product } from '@/lib/mock/products';
+import { type Product } from '@/lib/mock/products';
 import { DEFAULT_ZONES, SHELF_ROWS, findZoneIn, type StoreZone } from '@/lib/mock/storeMap';
 
-/** 상품 등록 폼이 넘기는 값 — id는 이름에서 자동 생성한다. */
-export type ProductDraft = Omit<Product, 'id'>;
+/** 상품 등록/수정 폼이 넘기는 값 — id는 내부에서 부여한다. */
+export type ProductDraft = Omit<Product, 'id' | 'backendId' | 'category' | 'status'>;
 
 interface CatalogContextValue {
   products: Product[];
@@ -33,48 +44,71 @@ interface CatalogContextValue {
   findProduct: (productId: string) => Product | undefined;
   findZone: (zoneId: string) => StoreZone | undefined;
   productsInZone: (zoneId: string) => Product[];
-  addProduct: (draft: ProductDraft) => Product;
+  /** 상품 등록 — 백엔드에 생성(바코드 필요) + 로컬 표현(아이콘·구역·재고·할인) 저장. */
+  createProduct: (draft: ProductDraft, barcode: string) => Promise<Product>;
+  /** 상품 수정 — 백엔드에 가격·판매상태 반영 + 로컬 표현 갱신(백엔드는 이름/카테고리 수정 불가). */
+  editProduct: (productId: string, draft: ProductDraft) => Promise<void>;
+  /** 로컬 표현 필드만 즉시 갱신(재고 ± 등). 백엔드 미반영. */
   updateProduct: (productId: string, patch: Partial<ProductDraft>) => void;
+  /** 삭제 — 백엔드 삭제 API가 없어 로컬 숨김 + (백엔드 상품이면) 판매상태 SOLD_OUT 처리. */
   removeProduct: (productId: string) => void;
   updateZone: (zoneId: string, patch: Partial<Omit<StoreZone, 'id'>>) => void;
   /** 구역을 다른 매대 칸으로 옮긴다. 이미 다른 구역이 있으면 서로 자리를 바꾼다. */
   moveZone: (zoneId: string, row: number, col: number) => void;
   resetCatalog: () => void;
+  /** 백엔드 상품 목록 새로고침(당겨서 새로고침 등). */
+  refresh: () => Promise<void>;
 }
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined);
 
-/** 상품 이름에서 URL/키로 쓸 수 있는 id를 만든다. 한글은 그대로 두고 공백만 정리한다. */
-function slugify(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^\p{L}\p{N}-]/gu, '') || 'product'
-  );
+/** ProductDraft에서 오버레이가 보관하는 로컬 표현 필드만 추린다. */
+function draftToOverlay(patch: Partial<ProductDraft>): ProductOverlay {
+  const o: ProductOverlay = {};
+  if (patch.name !== undefined) o.name = patch.name;
+  if (patch.unitPrice !== undefined) o.unitPrice = patch.unitPrice;
+  if (patch.icon !== undefined) o.icon = patch.icon;
+  if (patch.zone !== undefined) o.zone = patch.zone;
+  if (patch.stock !== undefined) o.stock = patch.stock;
+  if (patch.discountPercent !== undefined) o.discountPercent = patch.discountPercent ?? null;
+  if (patch.description !== undefined) o.description = patch.description;
+  if (patch.brand !== undefined) o.brand = patch.brand;
+  return o;
 }
 
-function uniqueId(base: string, taken: Product[]): string {
-  if (!taken.some((p) => p.id === base)) return base;
-  let n = 2;
-  while (taken.some((p) => p.id === `${base}-${n}`)) n += 1;
-  return `${base}-${n}`;
+/** 로컬 전용 표현 필드(가격·이름 제외 — 백엔드 상품은 그 둘을 서버가 관리). */
+function presentationOverlay(draft: ProductDraft): ProductOverlay {
+  return {
+    icon: draft.icon,
+    zone: draft.zone,
+    stock: draft.stock,
+    discountPercent: draft.discountPercent ?? null,
+    description: draft.description,
+    brand: draft.brand,
+  };
+}
+
+/** 재고 0이면 품절, 아니면 판매중 — 백엔드 status와 매핑. */
+function statusFromStock(stock: number): ApiProductStatus {
+  return stock > 0 ? 'ON_SALE' : 'SOLD_OUT';
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [overlay, setOverlay] = useState<OverlayMap>({});
+  const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [zones, setZones] = useState<StoreZone[]>(DEFAULT_ZONES);
   const [isRestoring, setIsRestoring] = useState(true);
   const [hydrated, setHydrated] = useState(false);
+  const { isAuthenticated } = useAuth();
 
-  // 마운트 시 저장된 카탈로그 복원 (없으면 시드 그대로 사용).
+  // 마운트 시 로컬 레이어 복원(오버레이·구역·상품 캐시). 없으면 빈 오버레이 + 기본 구역.
   useEffect(() => {
     loadCatalog()
       .then((stored) => {
         if (stored) {
-          setProducts(stored.products);
-          setZones(stored.zones);
+          setOverlay(stored.overlay ?? {});
+          setZones(stored.zones ?? DEFAULT_ZONES);
+          setApiProducts(stored.cachedProducts ?? []);
         }
       })
       .finally(() => {
@@ -83,13 +117,30 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  // 변경 시 영속화(복원 완료 이후에만 — 시드가 저장본을 덮어쓰지 않도록).
-  // 구역 이름 입력처럼 한 글자마다 바뀌는 편집이 있어서 짧게 디바운스한다.
+  // 백엔드 상품 새로고침. 미인증/오프라인이면 조용히 실패하고 캐시를 유지한다.
+  const refresh = useCallback(async () => {
+    try {
+      const list = await fetchProducts();
+      setApiProducts(list);
+    } catch {
+      // 네트워크/인증 오류 — 마지막 캐시 유지
+    }
+  }, []);
+
+  // 로그인되면 최신 상품을 받아온다.
+  useEffect(() => {
+    if (isAuthenticated) refresh();
+  }, [isAuthenticated, refresh]);
+
+  // 백엔드 상품 + 로컬 오버레이 → 화면용 상품 목록.
+  const products = useMemo(() => mergeCatalog(apiProducts, overlay), [apiProducts, overlay]);
+
+  // 변경 시 영속화(복원 완료 이후에만). 짧게 디바운스한다(구역 이름 편집 등 잦은 변경 대비).
   useEffect(() => {
     if (!hydrated) return undefined;
-    const timer = setTimeout(() => saveCatalog({ products, zones }), 400);
+    const timer = setTimeout(() => saveCatalog({ overlay, zones, cachedProducts: apiProducts }), 400);
     return () => clearTimeout(timer);
-  }, [hydrated, products, zones]);
+  }, [hydrated, overlay, zones, apiProducts]);
 
   const findProduct = useCallback(
     (productId: string) => products.find((p) => p.id === productId),
@@ -103,22 +154,75 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [products],
   );
 
-  const addProduct = useCallback(
-    (draft: ProductDraft): Product => {
-      const created: Product = { ...draft, id: uniqueId(slugify(draft.name), products) };
-      setProducts((prev) => [...prev, created]);
-      return created;
+  // 상품 등록 — 백엔드에 생성 후 로컬 표현(아이콘·구역·재고·할인)을 오버레이로 저장한다.
+  const createProduct = useCallback(
+    async (draft: ProductDraft, barcode: string): Promise<Product> => {
+      const bc = barcode.trim();
+      const created = await adminCreateProduct({
+        barcode: bc,
+        name: draft.name,
+        price: draft.unitPrice,
+        category: categoryForZone(draft.zone),
+        status: statusFromStock(draft.stock),
+      });
+      setOverlay((prev) => ({ ...prev, [created.barcode]: presentationOverlay(draft) }));
+      await refresh();
+      return {
+        ...draft,
+        id: created.barcode,
+        backendId: created.id,
+        category: created.category,
+        status: created.status,
+      };
     },
-    [products],
+    [refresh],
+  );
+
+  // 상품 수정 — 백엔드에 가격·판매상태를 반영하고 로컬 표현을 갱신한다.
+  // 백엔드는 이름/카테고리 수정 API가 없어, 이름 변경은 로컬 override로만 표시된다.
+  const editProduct = useCallback(
+    async (productId: string, draft: ProductDraft): Promise<void> => {
+      const target = products.find((p) => p.id === productId);
+      const isBackend = target?.backendId != null;
+      setOverlay((prev) => ({
+        ...prev,
+        [productId]: {
+          ...prev[productId],
+          ...presentationOverlay(draft),
+          name: draft.name,
+          // 백엔드 상품은 가격을 서버가 관리(아래 PATCH) → 로컬 override 안 둠. 로컬 전용 상품만 override.
+          ...(isBackend ? {} : { unitPrice: draft.unitPrice }),
+        },
+      }));
+      if (isBackend && target?.backendId != null) {
+        await adminUpdateProduct(target.backendId, {
+          price: draft.unitPrice,
+          status: statusFromStock(draft.stock),
+        });
+        await refresh();
+      }
+    },
+    [products, refresh],
   );
 
   const updateProduct = useCallback((productId: string, patch: Partial<ProductDraft>) => {
-    setProducts((prev) => prev.map((p) => (p.id === productId ? { ...p, ...patch } : p)));
+    setOverlay((prev) => ({
+      ...prev,
+      [productId]: { ...prev[productId], ...draftToOverlay(patch) },
+    }));
   }, []);
 
-  const removeProduct = useCallback((productId: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
-  }, []);
+  const removeProduct = useCallback(
+    (productId: string) => {
+      // 백엔드 삭제 API가 없어 로컬에서 숨김. 백엔드 상품이면 판매상태를 SOLD_OUT으로 바꿔 주문을 막는다.
+      const target = products.find((p) => p.id === productId);
+      setOverlay((prev) => ({ ...prev, [productId]: { ...prev[productId], hidden: true } }));
+      if (target?.backendId != null) {
+        adminUpdateProduct(target.backendId, { status: 'SOLD_OUT' }).catch(() => {});
+      }
+    },
+    [products],
+  );
 
   const updateZone = useCallback((zoneId: string, patch: Partial<Omit<StoreZone, 'id'>>) => {
     setZones((prev) => prev.map((z) => (z.id === zoneId ? { ...z, ...patch } : z)));
@@ -140,12 +244,13 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetCatalog = useCallback(() => {
-    setProducts(DEFAULT_PRODUCTS);
+    setOverlay({});
     setZones(DEFAULT_ZONES);
     clearCatalog().catch(() => {
-      // 삭제 실패해도 다음 저장에서 시드가 다시 기록된다.
+      // 삭제 실패해도 다음 저장에서 덮어써진다.
     });
-  }, []);
+    refresh();
+  }, [refresh]);
 
   const value = useMemo<CatalogContextValue>(
     () => ({
@@ -156,12 +261,14 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       findProduct,
       findZone,
       productsInZone,
-      addProduct,
+      createProduct,
+      editProduct,
       updateProduct,
       removeProduct,
       updateZone,
       moveZone,
       resetCatalog,
+      refresh,
     }),
     [
       products,
@@ -170,12 +277,14 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       findProduct,
       findZone,
       productsInZone,
-      addProduct,
+      createProduct,
+      editProduct,
       updateProduct,
       removeProduct,
       updateZone,
       moveZone,
       resetCatalog,
+      refresh,
     ],
   );
 

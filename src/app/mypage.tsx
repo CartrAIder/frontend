@@ -111,15 +111,6 @@ export default function MyPageScreen() {
               <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
             </Pressable>
             <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
-            <Pressable
-              onPress={() => router.push('/navigate')}
-              style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
-            >
-              <Text style={{ fontSize: 20 }}>🧭</Text>
-              <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>매장 길 안내</Text>
-              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
-            </Pressable>
-            <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
             <View style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}>
               <Text style={{ fontSize: 20 }}>ℹ️</Text>
               <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>앱 정보</Text>

@@ -21,7 +21,6 @@ import {
   confirmEmailVerification,
   isEmailValid,
   isPasswordValid,
-  IS_MOCK,
   PASSWORD_RULE_TEXT,
   sendEmailVerification,
 } from '@/lib/api';
@@ -101,11 +100,7 @@ export default function SignupScreen() {
       await sendEmailVerification(email);
       setCodeSent(true);
       setResendIn(RESEND_COOLDOWN_SEC);
-      setVerifyMsg(
-        IS_MOCK
-          ? '인증번호를 보냈어요. 테스트 코드는 000000 입니다.'
-          : '인증번호를 이메일로 보냈어요. 10분 안에 입력해주세요.',
-      );
+      setVerifyMsg('인증번호를 이메일로 보냈어요. 10분 안에 입력해주세요.');
       setTimeout(() => codeRef.current?.focus(), 100);
     } catch (e) {
       const message = e instanceof Error ? e.message : '인증번호 발송에 실패했어요. 잠시 후 다시 시도해주세요.';
