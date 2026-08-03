@@ -465,6 +465,36 @@ export async function fetchProducts(): Promise<ApiProduct[]> {
   return apiFetch<ApiProduct[]>('/api/products');
 }
 
+export type ApiProductStatus = 'ON_SALE' | 'SOLD_OUT';
+
+/**
+ * 상품 등록(관리자). POST /api/admin/products { barcode, name, price, category, status } → ProductResponse
+ * ROLE_ADMIN 필요. 바코드는 unique — 중복 시 서버가 에러를 반환한다.
+ */
+export async function adminCreateProduct(input: {
+  barcode: string;
+  name: string;
+  price: number;
+  category: string;
+  status: ApiProductStatus;
+}): Promise<ApiProduct> {
+  return apiFetch<ApiProduct>('/api/admin/products', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/**
+ * 상품 수정(관리자). PATCH /api/admin/products/{productId} → ProductResponse
+ * 백엔드는 barcode·price·status만 수정 가능(이름·카테고리 변경 API 없음).
+ */
+export async function adminUpdateProduct(
+  productId: number,
+  patch: { barcode?: string; price?: number; status?: ApiProductStatus },
+): Promise<ApiProduct> {
+  return apiFetch<ApiProduct>(`/api/admin/products/${productId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
 // ── 결제 (토스페이먼츠) ──────────────────────────────────────────────────
 // 흐름: 주문 생성 → 결제 시도 생성 → (클라이언트에서 토스 결제창) → 승인.
 // 토스 결제창은 클라이언트키로 초기화하고, 사용자가 결제를 마치면 paymentKey를 받아 승인한다.

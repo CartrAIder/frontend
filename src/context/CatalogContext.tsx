@@ -20,7 +20,13 @@ import {
 } from 'react';
 
 import { useAuth } from '@/context/AuthContext';
-import { fetchProducts, type ApiProduct } from '@/lib/api';
+import {
+  adminCreateProduct,
+  adminUpdateProduct,
+  fetchProducts,
+  type ApiProduct,
+  type ApiProductStatus,
+} from '@/lib/api';
 import { categoryForZone, mergeCatalog, type OverlayMap, type ProductOverlay } from '@/lib/catalog/overlay';
 import { clearCatalog, loadCatalog, saveCatalog } from '@/lib/catalogStorage';
 import { type Product } from '@/lib/mock/products';
@@ -38,8 +44,13 @@ interface CatalogContextValue {
   findProduct: (productId: string) => Product | undefined;
   findZone: (zoneId: string) => StoreZone | undefined;
   productsInZone: (zoneId: string) => Product[];
-  addProduct: (draft: ProductDraft) => Product;
+  /** 상품 등록 — 백엔드에 생성(바코드 필요) + 로컬 표현(아이콘·구역·재고·할인) 저장. */
+  createProduct: (draft: ProductDraft, barcode: string) => Promise<Product>;
+  /** 상품 수정 — 백엔드에 가격·판매상태 반영 + 로컬 표현 갱신(백엔드는 이름/카테고리 수정 불가). */
+  editProduct: (productId: string, draft: ProductDraft) => Promise<void>;
+  /** 로컬 표현 필드만 즉시 갱신(재고 ± 등). 백엔드 미반영. */
   updateProduct: (productId: string, patch: Partial<ProductDraft>) => void;
+  /** 삭제 — 백엔드 삭제 API가 없어 로컬 숨김 + (백엔드 상품이면) 판매상태 SOLD_OUT 처리. */
   removeProduct: (productId: string) => void;
   updateZone: (zoneId: string, patch: Partial<Omit<StoreZone, 'id'>>) => void;
   /** 구역을 다른 매대 칸으로 옮긴다. 이미 다른 구역이 있으면 서로 자리를 바꾼다. */
@@ -50,17 +61,6 @@ interface CatalogContextValue {
 }
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined);
-
-/** 상품 이름에서 로컬 상품 키의 바탕을 만든다. 한글은 그대로 두고 공백만 정리한다. */
-function slugify(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^\p{L}\p{N}-]/gu, '') || 'product'
-  );
-}
 
 /** ProductDraft에서 오버레이가 보관하는 로컬 표현 필드만 추린다. */
 function draftToOverlay(patch: Partial<ProductDraft>): ProductOverlay {
@@ -74,6 +74,23 @@ function draftToOverlay(patch: Partial<ProductDraft>): ProductOverlay {
   if (patch.description !== undefined) o.description = patch.description;
   if (patch.brand !== undefined) o.brand = patch.brand;
   return o;
+}
+
+/** 로컬 전용 표현 필드(가격·이름 제외 — 백엔드 상품은 그 둘을 서버가 관리). */
+function presentationOverlay(draft: ProductDraft): ProductOverlay {
+  return {
+    icon: draft.icon,
+    zone: draft.zone,
+    stock: draft.stock,
+    discountPercent: draft.discountPercent ?? null,
+    description: draft.description,
+    brand: draft.brand,
+  };
+}
+
+/** 재고 0이면 품절, 아니면 판매중 — 백엔드 status와 매핑. */
+function statusFromStock(stock: number): ApiProductStatus {
+  return stock > 0 ? 'ON_SALE' : 'SOLD_OUT';
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
@@ -137,18 +154,56 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [products],
   );
 
-  const addProduct = useCallback((draft: ProductDraft): Product => {
-    // 로컬 전용 상품(백엔드에 아직 없음). barcode 자리에 local- 키를 부여한다.
-    const barcode = `local-${slugify(draft.name)}-${Date.now()}`;
-    setOverlay((prev) => ({
-      ...prev,
-      [barcode]: {
-        ...draftToOverlay(draft),
-        localOnly: { name: draft.name, unitPrice: draft.unitPrice, category: categoryForZone(draft.zone) },
-      },
-    }));
-    return { ...draft, id: barcode };
-  }, []);
+  // 상품 등록 — 백엔드에 생성 후 로컬 표현(아이콘·구역·재고·할인)을 오버레이로 저장한다.
+  const createProduct = useCallback(
+    async (draft: ProductDraft, barcode: string): Promise<Product> => {
+      const bc = barcode.trim();
+      const created = await adminCreateProduct({
+        barcode: bc,
+        name: draft.name,
+        price: draft.unitPrice,
+        category: categoryForZone(draft.zone),
+        status: statusFromStock(draft.stock),
+      });
+      setOverlay((prev) => ({ ...prev, [created.barcode]: presentationOverlay(draft) }));
+      await refresh();
+      return {
+        ...draft,
+        id: created.barcode,
+        backendId: created.id,
+        category: created.category,
+        status: created.status,
+      };
+    },
+    [refresh],
+  );
+
+  // 상품 수정 — 백엔드에 가격·판매상태를 반영하고 로컬 표현을 갱신한다.
+  // 백엔드는 이름/카테고리 수정 API가 없어, 이름 변경은 로컬 override로만 표시된다.
+  const editProduct = useCallback(
+    async (productId: string, draft: ProductDraft): Promise<void> => {
+      const target = products.find((p) => p.id === productId);
+      const isBackend = target?.backendId != null;
+      setOverlay((prev) => ({
+        ...prev,
+        [productId]: {
+          ...prev[productId],
+          ...presentationOverlay(draft),
+          name: draft.name,
+          // 백엔드 상품은 가격을 서버가 관리(아래 PATCH) → 로컬 override 안 둠. 로컬 전용 상품만 override.
+          ...(isBackend ? {} : { unitPrice: draft.unitPrice }),
+        },
+      }));
+      if (isBackend && target?.backendId != null) {
+        await adminUpdateProduct(target.backendId, {
+          price: draft.unitPrice,
+          status: statusFromStock(draft.stock),
+        });
+        await refresh();
+      }
+    },
+    [products, refresh],
+  );
 
   const updateProduct = useCallback((productId: string, patch: Partial<ProductDraft>) => {
     setOverlay((prev) => ({
@@ -157,13 +212,17 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const removeProduct = useCallback((productId: string) => {
-    // 백엔드 상품은 삭제 API가 없어 로컬에서 숨김 처리, 로컬 전용 상품은 그대로 숨겨져 사라진다.
-    setOverlay((prev) => ({
-      ...prev,
-      [productId]: { ...prev[productId], hidden: true },
-    }));
-  }, []);
+  const removeProduct = useCallback(
+    (productId: string) => {
+      // 백엔드 삭제 API가 없어 로컬에서 숨김. 백엔드 상품이면 판매상태를 SOLD_OUT으로 바꿔 주문을 막는다.
+      const target = products.find((p) => p.id === productId);
+      setOverlay((prev) => ({ ...prev, [productId]: { ...prev[productId], hidden: true } }));
+      if (target?.backendId != null) {
+        adminUpdateProduct(target.backendId, { status: 'SOLD_OUT' }).catch(() => {});
+      }
+    },
+    [products],
+  );
 
   const updateZone = useCallback((zoneId: string, patch: Partial<Omit<StoreZone, 'id'>>) => {
     setZones((prev) => prev.map((z) => (z.id === zoneId ? { ...z, ...patch } : z)));
@@ -202,7 +261,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       findProduct,
       findZone,
       productsInZone,
-      addProduct,
+      createProduct,
+      editProduct,
       updateProduct,
       removeProduct,
       updateZone,
@@ -217,7 +277,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       findProduct,
       findZone,
       productsInZone,
-      addProduct,
+      createProduct,
+      editProduct,
       updateProduct,
       removeProduct,
       updateZone,
