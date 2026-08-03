@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🛒 CartrAIder · Frontend
+<img src="assets/logo/lockup-color.svg" alt="CartrAIder" width="360" />
 
-**스마트 AI 카트 · 고객용 모바일 앱**
+### 🛒 고객용 모바일 앱
 
 카트에 부착된 카메라/스캐너로 AI가 상품을 인식 → 서버가 처리 → 앱에 실시간 반영 →
 **계산대 없이 앱에서 결제**하는 셀프 스캔 쇼핑 솔루션의 고객용 앱입니다.
