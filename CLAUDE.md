@@ -68,44 +68,74 @@
 Expo 템플릿 관례에 따라 소스는 `src/` 하위에 둔다. 경로 별칭 `@/*` → `./src/*`.
 
 플로우: **로그인/회원가입 → 홈(허브) → [쇼핑 시작] 카트 QR 연결 → 장바구니 → 결제 → 홈**.
-홈에서 쇼핑 시작·매장 길 안내·마이페이지 등을 선택해 흐름을 시작한다.
+홈에서 상품 보기·매장 지도·매장 길 안내·마이페이지 등을 선택해 흐름을 시작한다.
 회원 세션(로그인)과 카트 세션(QR)은 분리돼 있고, 둘 다 secure-store에 저장되어
 앱을 나갔다 돌아와도 복원된다(홈의 "쇼핑 계속하기"로 이어하기).
 
 ```
 src/
   app/
-    _layout.tsx        # 루트 Stack + Mode/Auth/CartSession/Cart Provider
+    _layout.tsx        # 루트 Stack + Mode/Catalog/Auth/CartSession/Cart Provider
     index.tsx          # 라우팅 게이트 (미로그인 → /login · 로그인 → /home)
     login.tsx          # 로그인 + 모드 토글 (토글은 여기·마이페이지)
-    signup.tsx         # 회원가입 (성공 시 자동 로그인)
-    home.tsx           # 홈 허브 — 쇼핑 시작/계속·메뉴·오늘의 할인
-    mypage.tsx         # 마이페이지 — 내 정보·접근성 설정·로그아웃
+    signup.tsx         # 회원가입 (성공 시 자동 로그인, 항상 일반 회원)
+    home.tsx           # 홈 허브 — 쇼핑 시작/계속·메뉴 4종·오늘의 할인·(관리자만) 관리자 진입
+    mypage.tsx         # 마이페이지 — 내 정보·접근성 설정·메뉴·로그아웃
     connect.tsx        # (1) 카트 연결 (QR 스캔·코드 입력)
     cart.tsx           # (2) 장바구니 (SSE 실시간)
     checkout.tsx       # (3) 결제 확인 (1탭)
     complete.tsx       # (4) 결제 완료 (QR 영수증·음성)
-    navigate.tsx       # (5) 매장 길 안내
+    navigate.tsx       # (5) 매장 길 안내 (경로 O, ?productId= 로 목적지 지정 가능)
+    map.tsx            # (6) 매장 지도 — 경로 없이 지도만, 구역 탭 → 해당 구역 상품
+    products.tsx       # (7) 상품 보기 — 검색·구역 필터·정렬·할인만
+    product/[id].tsx   # (8) 상품 상세 — 가격·재고·위치 지도·같은 구역 상품
+    admin/
+      _layout.tsx      # 관리자 라우트 가드 (미로그인 → /login · 일반 회원 → /home)
+      index.tsx        # 관리자 대시보드 — 통계·경고·관리 메뉴·데이터 초기화
+      products.tsx     # 상품 관리 — 목록·검색·재고 ±·수정·삭제
+      product-form.tsx # 상품 등록/수정 폼 (?id= 있으면 수정)
+      map.tsx          # 매장 지도 편집 — 구역 배치(스왑)·이름·아이콘·색상
   components/
     Card.tsx           # 흰 카드 (그림자/테두리·radius 토큰)
     PrimaryButton.tsx  # 블루/그린 CTA 버튼 (loading·variant)
     TextField.tsx      # 라벨 있는 채움형 입력창 (포커스 강조)
     ModeToggle.tsx     # 큰 글자·고대비 토글 (로그인 화면 전용)
+    StoreMap.tsx       # 매장 평면도 SVG — 길 안내·지도·관리자 편집이 공유
   context/
     ModeContext.tsx        # mode: 'normal' | 'senior' (기본 normal)
-    AuthContext.tsx        # 회원 로그인/회원가입 세션 (JWT)
+    CatalogContext.tsx     # 상품·매장 구역 (관리자 CRUD) — 영속화
+    AuthContext.tsx        # 회원 로그인/회원가입 세션 (JWT·role)
     CartSessionContext.tsx # 카트 연결(cartId) 세션 — 영속화
     CartContext.tsx        # 장바구니 상태 (useReducer) — 영속화
   theme/
     tokens.ts          # normal / senior 두 벌 (글자·색·그림자·radius·CTA)
   lib/
-    api.ts             # custom fetch wrapper (회원 JWT 자동 첨부)
+    api.ts             # custom fetch wrapper (회원 JWT 자동 첨부) + DEMO_ADMIN
     sse.ts             # SSE(react-native-sse) 연결
-    authStorage.ts     # 회원 세션·계정 저장 (secure-store)
+    authStorage.ts     # 회원 세션·계정 저장 (secure-store, role 포함)
     cartStorage.ts     # 카트 세션·장바구니 저장 (secure-store)
+    catalogStorage.ts  # 카탈로그 저장 (secure-store, 2KB 제한 회피용 청크 분할)
+    mock/products.ts   # 상품 시드 (18종) — CatalogContext의 초기값
+    mock/storeMap.ts   # 매장 구역 시드 (6매대 + 계산대)
 ```
 
 > 앱 코드는 `CartrAIder/frontend` 레포에 있다. 이 디렉터리(`창의공학설계`)는 기획/문서 공간이다.
+
+---
+
+## 관리자 계정 · 매장 카탈로그
+
+- 회원 세션에 `role: 'user' | 'admin'`이 있다. **회원가입으로 만든 계정은 항상 `user`**,
+  `admin`은 mock 고정 계정(`lib/api.ts`의 `DEMO_ADMIN`: `admin@cartraider.com` / `admin1234`)뿐이다.
+  실서버가 붙으면 역할은 백엔드가 내려주므로 `DEMO_ADMIN` 상수는 삭제한다.
+- 관리자 진입점은 **홈 상단 배너와 마이페이지 메뉴** 두 곳이며, 둘 다 `isAdmin`일 때만 보인다.
+  딥링크 대비로 `app/admin/_layout.tsx`가 라우트 가드를 한 번 더 건다.
+- 상품·매장 구역은 **`CatalogContext` 한 곳**이 소유한다. 고객 화면(상품 보기·지도·길 안내·
+  오늘의 할인)과 관리자 화면이 같은 데이터를 보므로, 화면에서 `mock/products.ts`를 직접
+  import하지 말고 `useCatalog()`를 쓴다. mock 배열은 최초 1회 채우는 **시드**일 뿐이다.
+- 매장 평면도는 `components/StoreMap.tsx` 하나만 쓴다(길 안내·지도·관리자 편집 공용).
+  좌표 상수(`COL_X`·`ROW_Y`·`buildRoute` 등)도 이 파일에서 export한다. 화면마다 SVG를 새로 그리지 말 것.
+- 매대는 **2행 × 3열 = 6칸** 고정이다(row 2는 계산대). 구역 추가·이동은 이 6칸 안에서만 가능하다.
 
 ---
 

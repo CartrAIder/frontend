@@ -5,21 +5,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card } from '@/components/Card';
 import { useAuth } from '@/context/AuthContext';
 import { useCartSession } from '@/context/CartSessionContext';
+import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
-import { PRODUCT_CATALOG } from '@/lib/mock/products';
 
-/** 로그인 후 허브 화면 — 여기서 쇼핑 시작·매장 안내·마이페이지 등을 선택해 흐름을 시작한다. */
+/** 로그인 후 허브 화면 — 여기서 쇼핑 시작·상품 보기·매장 지도·마이페이지 등을 선택해 흐름을 시작한다. */
 export default function HomeScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { member } = useAuth();
+  const { member, isAdmin } = useAuth();
   const { isConnected, cartId } = useCartSession();
+  const { products } = useCatalog();
 
-  const discounts = PRODUCT_CATALOG.filter((p) => p.discountPercent);
+  const discounts = products.filter((p) => p.discountPercent).slice(0, 4);
 
   const menuTiles = [
-    { key: 'navigate', icon: '🧭', label: '매장 길 안내', desc: '상품 위치·경로', onPress: () => router.push('/navigate') },
+    { key: 'products', icon: '🔎', label: '상품 보기', desc: '이 매장에서 파는 것', onPress: () => router.push('/products') },
+    { key: 'map', icon: '🗺️', label: '매장 지도', desc: '구역·상품 위치', onPress: () => router.push('/map') },
+    { key: 'navigate', icon: '🧭', label: '매장 길 안내', desc: '상품까지 경로', onPress: () => router.push('/navigate') },
     { key: 'mypage', icon: '👤', label: '마이페이지', desc: '내 정보·설정', onPress: () => router.push('/mypage') },
   ];
 
@@ -44,6 +47,22 @@ export default function HomeScreen() {
             </Text>
           </Pressable>
         </View>
+
+        {/* 관리자 전용 진입 버튼 — admin 계정에만 보인다. */}
+        {isAdmin && (
+          <Pressable onPress={() => router.push('/admin')} accessibilityRole="button" accessibilityLabel="관리자 페이지">
+            <View style={[styles.adminBar, theme.shadowCard, { backgroundColor: colors.text, borderRadius: theme.radius }]}>
+              <Text style={{ fontSize: 22 }}>🛠️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: theme.fontBody, color: '#FFFFFF', fontWeight: '800' }}>관리자 페이지</Text>
+                <Text style={{ fontSize: theme.fontBody - 4, color: '#FFFFFF', opacity: 0.7 }}>
+                  상품 등록 · 재고 · 매장 지도 편집
+                </Text>
+              </View>
+              <Text style={{ fontSize: theme.fontBody, color: '#FFFFFF', opacity: 0.8 }}>›</Text>
+            </View>
+          </Pressable>
+        )}
 
         {/* 히어로 CTA — 쇼핑 시작 / 계속하기 */}
         <Pressable onPress={() => router.push(isConnected ? '/cart' : '/connect')} accessibilityRole="button">
@@ -76,16 +95,18 @@ export default function HomeScreen() {
           </View>
         </Pressable>
 
-        {/* 메뉴 타일 */}
+        {/* 메뉴 타일 (2 × 2) */}
         <View style={{ gap: 8 }}>
           <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700', marginLeft: 4 }}>메뉴</Text>
-          <View style={styles.tileRow}>
+          <View style={styles.tileGrid}>
             {menuTiles.map((t) => (
-              <Pressable key={t.key} onPress={t.onPress} style={{ flex: 1 }} accessibilityLabel={t.label}>
+              <Pressable key={t.key} onPress={t.onPress} style={styles.tileWrap} accessibilityLabel={t.label}>
                 <Card style={styles.tile}>
                   <Text style={styles.tileIcon}>{t.icon}</Text>
                   <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>{t.label}</Text>
-                  <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>{t.desc}</Text>
+                  <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }} numberOfLines={1}>
+                    {t.desc}
+                  </Text>
                 </Card>
               </Pressable>
             ))}
@@ -95,22 +116,32 @@ export default function HomeScreen() {
         {/* 오늘의 할인 */}
         {discounts.length > 0 && (
           <View style={{ gap: 8 }}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700', marginLeft: 4 }}>
-              🏷️ 오늘의 할인
-            </Text>
+            <Pressable onPress={() => router.push('/products')} style={styles.sectionHead}>
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700' }}>🏷️ 오늘의 할인</Text>
+              <Text style={{ fontSize: theme.fontBody - 3, color: colors.primary, fontWeight: '700' }}>전체 보기 ›</Text>
+            </Pressable>
             <Card style={{ gap: 10 }}>
               {discounts.map((p) => (
-                <View key={p.id} style={styles.discountRow}>
+                <Pressable
+                  key={p.id}
+                  onPress={() => router.push(`/product/${p.id}`)}
+                  style={[styles.discountRow, { minHeight: theme.minTouch - 8 }]}
+                >
                   <Text style={{ fontSize: 22 }}>{p.icon}</Text>
-                  <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }} numberOfLines={1}>
-                    {p.name}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }} numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+                      ₩{salePrice(p).toLocaleString('ko-KR')}
+                    </Text>
+                  </View>
                   <View style={[styles.discountTag, { backgroundColor: colors.warningSurface, borderRadius: 6 }]}>
                     <Text style={{ fontSize: theme.fontBody - 4, color: colors.warningText, fontWeight: '800' }}>
                       {p.discountPercent}% 할인
                     </Text>
                   </View>
-                </View>
+                </Pressable>
               ))}
             </Card>
           </View>
@@ -124,13 +155,16 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
   avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  adminBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 20 },
   livePill: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 2 },
   heroIconWrap: { alignItems: 'center', gap: 2 },
   heroIcon: { fontSize: 40 },
-  tileRow: { flexDirection: 'row', gap: 12 },
+  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  tileWrap: { flexGrow: 1, flexBasis: '45%' },
   tile: { alignItems: 'flex-start', gap: 4, minHeight: 108, justifyContent: 'center' },
   tileIcon: { fontSize: 30, marginBottom: 2 },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: 4 },
   discountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   discountTag: { paddingHorizontal: 8, paddingVertical: 4 },
 });

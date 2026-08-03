@@ -7,7 +7,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { isTokenExpired, loginMember, logoutMember, signupMember, toSession, type SignupInput } from '@/lib/api';
+import { isTokenExpired, loginMember, logoutMember, reissueSession, signupMember, toSession, type SignupInput } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
 export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
@@ -31,17 +31,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
-    loadMemberSession()
-      .then((restored) => {
-        // 저장된 액세스 토큰이 이미 만료됐으면 세션을 폐기(자동 로그아웃)한다.
-        if (restored && isTokenExpired(restored.token)) {
-          clearMemberSession().catch(() => {});
-          setSession(null);
+    let active = true;
+    (async () => {
+      try {
+        const restored = await loadMemberSession();
+        if (!restored) return;
+        // 액세스 토큰이 아직 유효하면 그대로 복원한다.
+        if (!isTokenExpired(restored.token)) {
+          if (active) setSession(restored);
           return;
         }
-        setSession(restored);
-      })
-      .finally(() => setIsRestoring(false));
+        // 만료됐으면 저장된 refresh 토큰으로 재발급을 시도한다(성공 시 세션 유지).
+        const refreshed = await reissueSession();
+        if (refreshed) {
+          if (active) setSession(refreshed);
+          return;
+        }
+        // refresh 토큰까지 만료/부재면 세션을 폐기(자동 로그아웃)한다.
+        await clearMemberSession().catch(() => {});
+        if (active) setSession(null);
+      } finally {
+        if (active) setIsRestoring(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const applySession = useCallback(async (next: MemberSession) => {

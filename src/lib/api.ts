@@ -2,13 +2,13 @@
  * Custom fetch wrapper — 모든 REST 요청에 회원 JWT를 자동 첨부하고 에러를 공통 처리한다.
  * Axios는 사용하지 않는다.
  *
- * 백엔드 API 명세가 미확정인 함수는 mock으로 동작한다 (EXPO_PUBLIC_USE_MOCK, 기본 true).
- * Sprint 6에서 실 엔드포인트가 확정되면 각 함수의 mock 분기만 교체하면 된다.
+ * 회원 인증(회원가입·이메일 인증·로그인/로그아웃·토큰 재발급)은 실서버(`/api/mobile/auth`,
+ * `/api/users`, `/api/email-verifications`)에 직접 연동돼 있다.
+ * 카트/결제 등 아직 명세 미확정인 함수만 mock으로 동작한다 (EXPO_PUBLIC_USE_MOCK, 기본 true).
  */
 import {
-  loadAccount,
   loadMemberSession,
-  saveAccount,
+  saveMemberSession,
   type MemberRole,
   type MemberSession,
 } from './authStorage';
@@ -61,7 +61,7 @@ async function extractErrorMessage(res: Response): Promise<string> {
   return `요청에 실패했어요. (${res.status})`;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, init: RequestInit = {}, retrying = false): Promise<T> {
   const session = await loadMemberSession();
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
@@ -70,6 +70,16 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
 
   const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, { ...init, headers });
+
+  // 액세스 토큰 만료(401) → 저장된 refresh 토큰으로 1회 재발급 후 원 요청을 그대로 재시도한다.
+  // (동시 다발 401은 reissueOnce가 하나의 재발급으로 합친다. 재시도 요청엔 retrying=true를 줘 무한루프 방지)
+  if (res.status === 401 && !retrying && session?.refreshToken) {
+    const refreshed = await reissueOnce();
+    if (refreshed) {
+      return apiFetch<T>(path, init, true);
+    }
+  }
+
   if (!res.ok) {
     throw new Error(await extractErrorMessage(res));
   }
@@ -123,19 +133,11 @@ export function isEmailValid(email: string): boolean {
 
 export interface AuthResult {
   member: { id: string; name: string; email: string; role: MemberRole };
+  /** 액세스 토큰(요청 헤더에 첨부). */
   token: string;
+  /** 리프레시 토큰(secure-store 보관, 재발급용). */
+  refreshToken: string;
 }
-
-/**
- * 시연용 관리자 계정 (mock 전용).
- * 회원가입으로는 만들 수 없고, 이 자격 증명으로 로그인해야만 role: 'admin'이 발급된다.
- * TODO(api): 실서버 연동 시 역할은 백엔드가 내려주므로 이 상수는 삭제한다.
- */
-export const DEMO_ADMIN = {
-  email: 'admin@cartraider.com',
-  password: 'admin1234',
-  name: '매장 관리자',
-} as const;
 
 /** AuthResult(REST 응답)를 secure-store에 저장할 회원 세션 형태로 변환한다. */
 export function toSession(result: AuthResult): MemberSession {
@@ -144,13 +146,51 @@ export function toSession(result: AuthResult): MemberSession {
     name: result.member.name,
     email: result.member.email,
     token: result.token,
+    refreshToken: result.refreshToken,
     role: result.member.role,
   };
 }
 
+// ── 이메일 인증 (회원가입 전 단계) ──────────────────────────────────────
+// 서버는 회원가입 시 이메일 인증을 요구한다: 발송(6자리 코드) → 확인 → 가입.
+
 /**
- * 회원가입. mock에서는 계정을 로컬(secure-store)에 저장하고 바로 로그인 세션을 발급한다.
- * TODO(api): 실제 Spring Boot 연동 시 mock 분기를 `POST /api/auth/signup`으로 교체.
+ * 인증번호 발송. 성공하면 서버가 6자리 코드를 이메일로 보낸다(코드 10분·재발송 1분 제한).
+ * 실패 예: 이미 가입된 이메일(409), 재발송 쿨다운(429), 메일 발송 실패(502).
+ * POST /api/email-verifications { email }
+ */
+export async function sendEmailVerification(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  if (!isEmailValid(normalized)) {
+    throw new Error('이메일 형식을 확인해주세요 (예: you@example.com)');
+  }
+  await apiFetch<{ message: string }>('/api/email-verifications', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized }),
+  });
+}
+
+/**
+ * 인증번호 확인. 6자리 코드가 맞으면 서버가 해당 이메일을 "인증됨"으로 표시한다(30분 유효).
+ * 실패 예: 코드 불일치(400), 만료/미존재(400).
+ * POST /api/email-verifications/confirm { email, code }
+ */
+export async function confirmEmailVerification(email: string, code: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  const trimmedCode = code.trim();
+  if (!/^\d{6}$/.test(trimmedCode)) {
+    throw new Error('인증번호 6자리를 입력해주세요.');
+  }
+  await apiFetch<{ message: string }>('/api/email-verifications/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized, code: trimmedCode }),
+  });
+}
+
+/**
+ * 회원가입. 이메일 인증(sendEmailVerification→confirmEmailVerification)을 먼저 마쳐야 한다.
+ * 서버는 회원 생성만 하고 토큰은 주지 않으므로, 가입 직후 곧바로 로그인해 세션을 발급받는다.
+ * POST /api/users/signup { email, password, name } → { id, email, name, role }
  */
 export async function signupMember(input: SignupInput): Promise<AuthResult> {
   const name = input.name.trim();
@@ -160,16 +200,6 @@ export async function signupMember(input: SignupInput): Promise<AuthResult> {
     throw new Error('이름·이메일·비밀번호를 모두 입력해주세요.');
   }
 
-  if (USE_MOCK) {
-    await delay(600);
-    if (email === DEMO_ADMIN.email) {
-      throw new Error('이미 사용 중인 이메일이에요.');
-    }
-    await saveAccount({ name, email, password });
-    return { member: { id: email, name, email, role: 'user' }, token: `mock-jwt-${email}` };
-  }
-
-  // 실서버: 회원 생성만 하고 토큰은 주지 않으므로, 가입 직후 곧바로 로그인해 세션을 발급받는다.
   await apiFetch<{ id: number; email: string; name: string; role: string }>('/api/users/signup', {
     method: 'POST',
     body: JSON.stringify({ email, password, name }),
@@ -178,8 +208,23 @@ export async function signupMember(input: SignupInput): Promise<AuthResult> {
 }
 
 /**
- * 로그인. mock에서는 회원가입 때 저장한 로컬 계정과 이메일·비밀번호를 대조한다.
- * TODO(api): 실제 Spring Boot 연동 시 mock 분기를 `POST /api/auth/login`으로 교체.
+ * 모바일 인증 응답 — 쿠키를 못 쓰는 네이티브 클라이언트용. 토큰을 body로 받아 secure-store에 보관한다.
+ * (POST /api/mobile/auth/login · /reissue 공통)
+ */
+interface MobileAuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresIn: number; // 초
+  refreshTokenExpiresIn: number; // 초
+  tokenType: string; // "Bearer"
+  name: string;
+}
+
+/**
+ * 로그인. RN은 httpOnly 쿠키가 불안정하므로 모바일 전용 엔드포인트를 쓴다.
+ * POST /api/mobile/auth/login { email, password }
+ *   → { accessToken, refreshToken, accessTokenExpiresIn, refreshTokenExpiresIn, tokenType, name }
+ * 응답 body엔 id/email/role이 없어 id·role은 액세스 토큰(JWT)에서, email은 입력값을 그대로 쓴다.
  */
 export async function loginMember(email: string, password: string): Promise<AuthResult> {
   const normalizedEmail = email.trim().toLowerCase();
@@ -187,39 +232,9 @@ export async function loginMember(email: string, password: string): Promise<Auth
     throw new Error('이메일과 비밀번호를 입력해주세요.');
   }
 
-  if (USE_MOCK) {
-    await delay(600);
-
-    // 관리자 계정은 로컬 가입 계정과 별개로 먼저 대조한다.
-    if (normalizedEmail === DEMO_ADMIN.email) {
-      if (password !== DEMO_ADMIN.password) {
-        throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
-      }
-      return {
-        member: { id: DEMO_ADMIN.email, name: DEMO_ADMIN.name, email: DEMO_ADMIN.email, role: 'admin' },
-        token: `mock-jwt-admin-${DEMO_ADMIN.email}`,
-      };
-    }
-
-    const account = await loadAccount();
-    if (!account) {
-      throw new Error('가입된 계정이 없어요. 먼저 회원가입을 해주세요.');
-    }
-    if (account.email !== normalizedEmail || account.password !== password) {
-      throw new Error('이메일 또는 비밀번호가 올바르지 않아요.');
-    }
-    return {
-      member: { id: account.email, name: account.name, email: account.email, role: 'user' },
-      token: `mock-jwt-${account.email}`,
-    };
-  }
-
-  // 실서버: 응답 body는 비어있고 액세스 토큰은 Authorization 응답 헤더로 온다.
-  // (리프레시 토큰은 refreshToken 쿠키. 웹에서는 credentials: 'include'로 저장한다.)
-  const res = await fetchWithTimeout(`${API_BASE_URL}/api/auth/login`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/api/mobile/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
     body: JSON.stringify({ email: normalizedEmail, password }),
   });
   if (!res.ok) {
@@ -228,37 +243,84 @@ export async function loginMember(email: string, password: string): Promise<Auth
     throw new Error(message);
   }
 
-  const authHeader = res.headers.get('authorization') ?? res.headers.get('Authorization');
-  const token = authHeader?.replace(/^Bearer\s+/i, '') ?? '';
-  if (!token) {
+  const data = (await res.json()) as MobileAuthResponse;
+  if (!data.accessToken) {
     throw new Error('로그인 토큰을 받지 못했습니다.');
   }
-
-  // 로그인 응답에 회원정보가 없어 JWT에서 추출한다. (name은 토큰에 없어 이메일 앞부분으로 임시 표시)
-  // TODO(api): 백엔드가 name을 내려주면(로그인 응답 body 또는 /api/users/me) 교체한다.
-  const claims = decodeJWT(token);
-  const role: MemberRole = claims.role === 'ADMIN' ? 'admin' : 'user';
-  const memberEmail = claims.email ?? normalizedEmail;
+  const claims = decodeJWT(data.accessToken);
   return {
     member: {
       id: claims.sub,
-      name: memberEmail.split('@')[0],
-      email: memberEmail,
-      role,
+      name: data.name,
+      email: normalizedEmail,
+      role: claims.role === 'ADMIN' ? 'admin' : 'user',
     },
-    token,
+    token: data.accessToken,
+    refreshToken: data.refreshToken,
   };
 }
 
 /**
+ * 저장된 refresh 토큰으로 액세스/refresh 토큰을 재발급받아 세션을 갱신한다.
+ * POST /api/mobile/auth/reissue { refreshToken } → MobileAuthResponse (refresh 토큰도 회전됨)
+ * 성공 시 새 세션을 secure-store에 저장하고 반환한다. refresh 토큰이 없거나 만료(재발급 실패)면 null.
+ * 응답엔 email이 없으므로 기존 세션의 email을 유지한다.
+ */
+export async function reissueSession(): Promise<MemberSession | null> {
+  const session = await loadMemberSession();
+  if (!session?.refreshToken) return null;
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/mobile/auth/reissue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as MobileAuthResponse;
+    if (!data.accessToken) return null;
+    const claims = decodeJWT(data.accessToken);
+    const next: MemberSession = {
+      id: claims.sub,
+      name: data.name,
+      email: session.email,
+      token: data.accessToken,
+      refreshToken: data.refreshToken,
+      role: claims.role === 'ADMIN' ? 'admin' : 'user',
+    };
+    await saveMemberSession(next);
+    return next;
+  } catch {
+    // 네트워크 오류 등은 재발급 실패로 간주(호출부가 로그아웃 처리)
+    return null;
+  }
+}
+
+/**
+ * 동시에 여러 요청이 401을 만나도 재발급은 한 번만 수행하도록 합친다(중복 재발급·토큰 회전 경쟁 방지).
+ */
+let reissueInFlight: Promise<MemberSession | null> | null = null;
+function reissueOnce(): Promise<MemberSession | null> {
+  if (!reissueInFlight) {
+    reissueInFlight = reissueSession().finally(() => {
+      reissueInFlight = null;
+    });
+  }
+  return reissueInFlight;
+}
+
+/**
  * 로그아웃 — 서버의 refresh 토큰을 무효화한다. (best-effort: 실패해도 로컬 세션은 정리한다)
- * 백엔드는 쿠키의 refreshToken을 읽으므로 credentials: 'include'로 호출한다.
- * TODO(api): 쿠키를 못 싣는 모바일 환경 대응은 백엔드 협의 후 보완.
+ * POST /api/mobile/auth/logout { refreshToken }
  */
 export async function logoutMember(): Promise<void> {
-  if (USE_MOCK) return;
+  const session = await loadMemberSession();
+  if (!session?.refreshToken) return;
   try {
-    await fetch(`${API_BASE_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+    await fetchWithTimeout(`${API_BASE_URL}/api/mobile/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+    });
   } catch {
     // 네트워크 실패 등은 무시 — 로컬 로그아웃은 그대로 진행한다.
   }
@@ -315,13 +377,32 @@ export async function connectCart(code: string): Promise<ConnectCartResult> {
     return { cartId: trimmed.toUpperCase() };
   }
 
-  // 백엔드: { cartId(number), qrCode, status } 반환
+  // 백엔드: { cartId(number), qrCode, status, connectionType, snapshot } 반환
   // 이후 SSE/수량/삭제 전부 qrCode 기준이므로 세션 식별자 qrCode로 사용.
   const res = await apiFetch<{ cartId: number; qrCode: string; status: string }>('/api/carts/connect', {
     method: 'POST',
     body: JSON.stringify({ qrCode: trimmed }),
   });
   return { cartId: res.qrCode };
+}
+
+/** 서버 장바구니 스냅샷 (백엔드 CartSnapshotResponse). SSE 스냅샷과 동일 형태. */
+export interface CartSnapshotData {
+  qrCode: string;
+  version: number;
+  items: { barcode: string; name: string; price: number; quantity: number }[];
+  totalQuantity: number;
+  totalPrice: number;
+}
+
+/**
+ * 현재 연결된 카트의 스냅샷을 조회한다. GET /api/carts/current → { …, snapshot } (미연결이면 204→null).
+ * SSE는 구독 시점의 현재 장바구니를 자동으로 내려주지 않으므로(연결 시 발행되는 cart-init은
+ * 구독 이전이라 놓친다), (재)접속 때 이걸로 현재 장바구니를 동기화한다. (이슈 #14)
+ */
+export async function fetchCurrentCart(): Promise<CartSnapshotData | null> {
+  const res = await apiFetch<{ snapshot: CartSnapshotData | null } | undefined>('/api/carts/current');
+  return res?.snapshot ?? null;
 }
 
 /**
@@ -366,23 +447,86 @@ export async function removeCartItem(qrCode: string, barcode: string): Promise<v
   });
 }
 
-export interface PaymentResult {
-  receiptId: string;
+// ── 상품 카탈로그(백엔드) ────────────────────────────────────────────────
+// 주문 생성은 상품 바코드가 아니라 백엔드 상품 id(Long)를 요구하므로, 결제 시
+// 장바구니 아이템(바코드)을 상품 id로 변환하기 위해 이 목록을 사용한다.
+
+export interface ApiProduct {
+  id: number;
+  barcode: string;
+  name: string;
+  price: number;
+  category: string;
+  status: string; // ON_SALE 등
+}
+
+/** 상품 목록 조회. GET /api/products → [{ id, barcode, name, price, category, status }] */
+export async function fetchProducts(): Promise<ApiProduct[]> {
+  return apiFetch<ApiProduct[]>('/api/products');
+}
+
+// ── 결제 (토스페이먼츠) ──────────────────────────────────────────────────
+// 흐름: 주문 생성 → 결제 시도 생성 → (클라이언트에서 토스 결제창) → 승인.
+// 토스 결제창은 클라이언트키로 초기화하고, 사용자가 결제를 마치면 paymentKey를 받아 승인한다.
+
+export interface OrderDraft {
+  orderId: string; // 외부 노출용 주문 식별자(토스 orderId로도 사용)
+  orderName: string;
+  totalAmount: number; // 서버가 상품가 기준으로 계산한 최종 금액(결제 금액의 기준)
+}
+
+/** 주문 생성. POST /api/orders { items:[{ productId, quantity }] } */
+export async function createOrder(items: { productId: number; quantity: number }[]): Promise<OrderDraft> {
+  const res = await apiFetch<{ id: number; orderId: string; orderName: string; totalAmount: number; status: string }>(
+    '/api/orders',
+    { method: 'POST', body: JSON.stringify({ items }) },
+  );
+  return { orderId: res.orderId, orderName: res.orderName, totalAmount: res.totalAmount };
+}
+
+export interface PaymentAttempt {
+  paymentAttemptId: string;
+  orderId: string;
+  orderName: string;
+  amount: number;
+}
+
+/** 결제 시도 생성. POST /api/orders/{orderId}/payment-attempts */
+export async function createPaymentAttempt(orderId: string): Promise<PaymentAttempt> {
+  const r = await apiFetch<{ paymentAttemptId: string; orderId: string; orderName: string; amount: number }>(
+    `/api/orders/${encodeURIComponent(orderId)}/payment-attempts`,
+    { method: 'POST' },
+  );
+  return { paymentAttemptId: r.paymentAttemptId, orderId: r.orderId, orderName: r.orderName, amount: r.amount };
+}
+
+/** 토스 클라이언트키(공개키) 조회 — 결제창 초기화용. GET /api/payments/client-key */
+export async function getTossClientKey(): Promise<string> {
+  const r = await apiFetch<{ clientKey: string }>('/api/payments/client-key');
+  return r.clientKey;
+}
+
+export interface PaymentConfirmResult {
+  paymentAttemptId: string;
+  paymentKey: string | null;
+  approvedAmount: number | null;
+  status: string; // APPROVED / FAILED 등
+  code?: string | null;
+  message?: string | null;
 }
 
 /**
- * 결제를 요청한다. 실제 PG 연동은 범위 밖 — "결제 성공"을 가정하고 영수증만 발급한다.
- * TODO(api): 실제 엔드포인트 확정 시 mock 분기 교체.
+ * 결제 승인. POST /api/payments/confirm { paymentKey, orderId, amount, paymentAttemptId }
+ * 승인 성공 시 status=APPROVED(200). 승인 실패는 502로 오며 apiFetch가 서버 메시지로 throw 한다.
  */
-export async function requestPayment(cartId: string, amount: number): Promise<PaymentResult> {
-  if (USE_MOCK) {
-    await delay(700);
-    const year = new Date().getFullYear();
-    const seq = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-    return { receiptId: `${year}-${cartId}-${seq}` };
-  }
-  return apiFetch<PaymentResult>('/api/carts/payment', {
+export async function confirmPayment(input: {
+  paymentKey: string;
+  orderId: string;
+  amount: number;
+  paymentAttemptId: string;
+}): Promise<PaymentConfirmResult> {
+  return apiFetch<PaymentConfirmResult>('/api/payments/confirm', {
     method: 'POST',
-    body: JSON.stringify({ cartId, amount }),
+    body: JSON.stringify(input),
   });
 }

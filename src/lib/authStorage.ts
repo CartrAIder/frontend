@@ -6,14 +6,12 @@
  * context/AuthContext.tsx(회원 로그인 상태 관리)가 같은 키를 공유하기 위한 헬퍼로,
  * 순환 참조를 피하려고 별도 모듈로 분리했다.
  *
- * 백엔드 미확정이라 mock으로 동작한다. 실서버가 붙으면 계정 검증은 서버가 하고
- * 이 모듈은 세션 토큰만 보관하면 된다(등록 계정 키는 제거 가능).
+ * 계정 검증은 서버(`/api/mobile/auth`)가 하고, 이 모듈은 로그인 세션(액세스·refresh 토큰)만 보관한다.
  */
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 const MEMBER_STORAGE_KEY = 'cartraider.member';
-const ACCOUNT_STORAGE_KEY = 'cartraider.account';
 
 /**
  * 저장 백엔드 추상화 — 네이티브(폰)는 expo-secure-store(OS 키체인, 암호화 저장),
@@ -51,15 +49,11 @@ export interface MemberSession {
   id: string;
   name: string;
   email: string;
+  /** 액세스 토큰(요청 헤더 첨부, 짧은 수명). */
   token: string;
+  /** 리프레시 토큰(만료 시 액세스 토큰 재발급용). 구버전 세션엔 없을 수 있다. */
+  refreshToken?: string;
   role: MemberRole;
-}
-
-/** 회원가입 시 로컬에 저장하는 자격 증명(로그인 시 대조용, mock 전용). */
-export interface RegisteredAccount {
-  name: string;
-  email: string;
-  password: string;
 }
 
 export async function loadMemberSession(): Promise<MemberSession | null> {
@@ -85,31 +79,6 @@ export async function saveMemberSession(session: MemberSession): Promise<void> {
 export async function clearMemberSession(): Promise<void> {
   try {
     await storage.removeItem(MEMBER_STORAGE_KEY);
-  } catch {
-    // 삭제 실패는 무시.
-  }
-}
-
-export async function loadAccount(): Promise<RegisteredAccount | null> {
-  try {
-    const raw = await storage.getItem(ACCOUNT_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as RegisteredAccount) : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function saveAccount(account: RegisteredAccount): Promise<void> {
-  try {
-    await storage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(account));
-  } catch {
-    // 저장 실패는 무시.
-  }
-}
-
-export async function clearAccount(): Promise<void> {
-  try {
-    await storage.removeItem(ACCOUNT_STORAGE_KEY);
   } catch {
     // 삭제 실패는 무시.
   }
