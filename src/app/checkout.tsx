@@ -23,11 +23,19 @@ function formatWon(amount: number): string {
   return `₩${amount.toLocaleString('ko-KR')}`;
 }
 
-/** 결제창에 넘길 세션 정보 — 주문·결제시도·클라이언트키를 한데 묶는다. */
+/** 영수증에 찍을 주문 상품 한 줄. */
+interface ReceiptItem {
+  name: string;
+  qty: number;
+  unitPrice: number;
+}
+
+/** 결제창에 넘길 세션 정보 — 주문·결제시도·클라이언트키·영수증 항목을 한데 묶는다. */
 interface TossSession {
   clientKey: string;
   order: OrderDraft;
   attempt: PaymentAttempt;
+  orderItems: ReceiptItem[];
 }
 
 /** (3) 결제 확인 화면 — 주문을 생성하고 토스 결제창을 띄운 뒤 승인까지 처리한다. */
@@ -63,10 +71,17 @@ export default function CheckoutScreen() {
         items.push({ productId, quantity: item.qty });
       }
 
+      // 영수증에 찍을 상품 목록(이름·수량·단가)을 결제 전에 캡처한다(결제 후 카트는 비워짐).
+      const orderItems: ReceiptItem[] = cart.items.map((it) => ({
+        name: it.name,
+        qty: it.qty,
+        unitPrice: it.unitPrice,
+      }));
+
       const order = await createOrder(items);
       const attempt = await createPaymentAttempt(order.orderId);
       const clientKey = await getTossClientKey();
-      setToss({ clientKey, order, attempt });
+      setToss({ clientKey, order, attempt, orderItems });
     } catch (e) {
       setError(e instanceof Error ? e.message : '결제 준비에 실패했어요. 다시 시도해주세요.');
     } finally {
@@ -92,7 +107,13 @@ export default function CheckoutScreen() {
       setToss(null);
       router.replace({
         pathname: '/complete',
-        params: { receiptId: toss.order.orderId, amount: String(toss.order.totalAmount) },
+        params: {
+          receiptId: toss.order.orderId,
+          amount: String(toss.order.totalAmount),
+          orderName: toss.order.orderName,
+          items: JSON.stringify(toss.orderItems),
+          paidAt: String(Date.now()),
+        },
       });
     } catch (e) {
       setToss(null);

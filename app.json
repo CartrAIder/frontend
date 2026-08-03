@@ -40,6 +40,13 @@
         {
           "cameraPermission": "카트 QR코드를 스캔하기 위해 카메라 접근 권한이 필요합니다."
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "결제 영수증 이미지를 사진에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "결제 영수증 이미지를 사진에 저장하기 위해 접근 권한이 필요합니다."
+        }
       ]
     ],
     "experiments": {
