@@ -1,4 +1,3 @@
-import * as Speech from 'expo-speech';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -9,6 +8,7 @@ import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCartSession } from '@/context/CartSessionContext';
 import { useTheme } from '@/context/ModeContext';
+import { speakKo, stopSpeaking } from '@/lib/speak';
 
 function formatWon(amount: number): string {
   return `₩${amount.toLocaleString('ko-KR')}`;
@@ -33,17 +33,15 @@ export default function CompleteScreen() {
 
   useEffect(() => {
     if (!theme.voiceGuide) return;
-    Speech.speak(`결제가 완료되었습니다. 결제 금액은 ${amount.toLocaleString('ko-KR')}원입니다.`, {
-      language: 'ko-KR',
-    });
+    speakKo(`결제가 완료되었습니다. 결제 금액은 ${amount.toLocaleString('ko-KR')}원입니다.`);
     return () => {
-      Speech.stop();
+      stopSpeaking();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme.voiceGuide]);
 
   function handleRestart() {
-    Speech.stop();
+    stopSpeaking();
     // 세션은 이미 진입 시 반납됨(위 useEffect). 홈으로 이동만.
     router.replace('/home');
   }

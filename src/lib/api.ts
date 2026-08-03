@@ -7,11 +7,36 @@
  * 카트/결제 등 아직 명세 미확정인 함수만 mock으로 동작한다 (EXPO_PUBLIC_USE_MOCK, 기본 true).
  */
 import {
+  clearMemberSession,
   loadMemberSession,
   saveMemberSession,
   type MemberRole,
   type MemberSession,
 } from './authStorage';
+
+// ── 세션 만료 브리지 ─────────────────────────────────────────────────────
+// apiFetch는 React 밖(모듈)이라 AuthContext를 직접 못 부른다. refresh까지 만료돼
+// 재발급이 불가능할 때 등록된 콜백으로 "세션 만료"를 알려 자동 로그아웃/로그인 이동을 트리거한다.
+let onSessionExpired: (() => void) | null = null;
+let sessionExpiredNotified = false;
+
+/** AuthContext가 세션 만료 시 실행할 핸들러를 등록한다(세션 정리 + 로그인 이동). */
+export function setOnSessionExpired(cb: (() => void) | null): void {
+  onSessionExpired = cb;
+}
+
+/** 로그인/재발급 성공 시 호출 — 다음 만료를 다시 알릴 수 있게 플래그를 초기화한다. */
+function resetSessionExpiredFlag(): void {
+  sessionExpiredNotified = false;
+}
+
+/** 세션 만료를 1회만 통지한다(동시 다발 401에서 중복 알림 방지). */
+function notifySessionExpired(): void {
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  clearMemberSession().catch(() => {});
+  onSessionExpired?.();
+}
 
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 const USE_MOCK = (process.env.EXPO_PUBLIC_USE_MOCK ?? 'true') !== 'false';
@@ -73,11 +98,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}, retrying
 
   // 액세스 토큰 만료(401) → 저장된 refresh 토큰으로 1회 재발급 후 원 요청을 그대로 재시도한다.
   // (동시 다발 401은 reissueOnce가 하나의 재발급으로 합친다. 재시도 요청엔 retrying=true를 줘 무한루프 방지)
-  if (res.status === 401 && !retrying && session?.refreshToken) {
-    const refreshed = await reissueOnce();
+  // 재발급까지 실패(refresh 만료/무효) = 세션 만료 → 자동 로그아웃 + 로그인 이동을 통지한다.
+  if (res.status === 401 && !retrying) {
+    const refreshed = session?.refreshToken ? await reissueOnce() : null;
     if (refreshed) {
       return apiFetch<T>(path, init, true);
     }
+    notifySessionExpired();
   }
 
   if (!res.ok) {
@@ -248,6 +275,7 @@ export async function loginMember(email: string, password: string): Promise<Auth
     throw new Error('로그인 토큰을 받지 못했습니다.');
   }
   const claims = decodeJWT(data.accessToken);
+  resetSessionExpiredFlag();
   return {
     member: {
       id: claims.sub,
@@ -288,6 +316,7 @@ export async function reissueSession(): Promise<MemberSession | null> {
       role: claims.role === 'ADMIN' ? 'admin' : 'user',
     };
     await saveMemberSession(next);
+    resetSessionExpiredFlag();
     return next;
   } catch {
     // 네트워크 오류 등은 재발급 실패로 간주(호출부가 로그아웃 처리)

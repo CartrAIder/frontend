@@ -22,7 +22,6 @@ export default function HomeScreen() {
   const menuTiles = [
     { key: 'products', icon: '🔎', label: '상품 보기', desc: '이 매장에서 파는 것', onPress: () => router.push('/products') },
     { key: 'map', icon: '🗺️', label: '매장 지도', desc: '구역·상품 위치', onPress: () => router.push('/map') },
-    { key: 'navigate', icon: '🧭', label: '매장 길 안내', desc: '상품까지 경로', onPress: () => router.push('/navigate') },
     { key: 'mypage', icon: '👤', label: '마이페이지', desc: '내 정보·설정', onPress: () => router.push('/mypage') },
   ];
 

@@ -10,6 +10,7 @@ import { useCart } from '@/context/CartContext';
 import { useTheme } from '@/context/ModeContext';
 import { confirmAction } from '@/lib/confirm';
 import { findProduct } from '@/lib/mock/products';
+import { speakKo } from '@/lib/speak';
 
 function formatWon(amount: number): string {
   return `₩${amount.toLocaleString('ko-KR')}`;
@@ -39,9 +40,14 @@ export default function CartScreen() {
   useEffect(() => {
     if (!cart.lastScanned) return undefined;
     setBannerVisible(true);
+    // 노약자 모드: 담긴 상품을 음성으로 안내(화면을 읽지 않아도 담김을 인지).
+    if (theme.voiceGuide) {
+      const { name, qty } = cart.lastScanned;
+      speakKo(qty > 1 ? `${name} ${qty}개 담겼습니다` : `${name} 담겼습니다`);
+    }
     const timer = setTimeout(() => setBannerVisible(false), 2500);
     return () => clearTimeout(timer);
-  }, [cart.lastScanned]);
+  }, [cart.lastScanned, theme.voiceGuide]);
 
   const isLive = cart.connectionStatus === 'open';
   const statusText = isLive
@@ -57,13 +63,6 @@ export default function CartScreen() {
           <View style={[styles.statusDot, { backgroundColor: isLive ? colors.success : colors.textMuted }]} />
           <Text style={{ fontSize: theme.fontBody - 3, color: colors.text, fontWeight: '600' }}>{statusText}</Text>
         </View>
-        <Pressable
-          onPress={() => router.push('/navigate')}
-          style={[styles.mapButton, { backgroundColor: colors.primarySurface, minHeight: theme.minTouch, borderRadius: theme.radiusSm }]}
-          accessibilityLabel="매장 길 안내 열기"
-        >
-          <Text style={{ fontSize: theme.fontBody - 3, color: colors.primary, fontWeight: '700' }}>🧭 매장 안내</Text>
-        </Pressable>
       </View>
 
       <ScrollView style={styles.list} contentContainerStyle={{ gap: theme.spacing, paddingVertical: theme.spacing }}>
@@ -160,7 +159,6 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
   statusPill: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  mapButton: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   list: { flex: 1 },
   empty: { alignItems: 'center', justifyContent: 'center', gap: 12, paddingTop: 80 },
   emptyEmoji: { fontSize: 56 },

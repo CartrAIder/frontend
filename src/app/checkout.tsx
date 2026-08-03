@@ -155,7 +155,12 @@ export default function CheckoutScreen() {
           disabled={cart.items.length === 0}
           variant="success"
         />
-        <Pressable onPress={() => router.back()} disabled={busy} style={styles.cancelButton} hitSlop={8}>
+        <Pressable
+          onPress={() => router.back()}
+          disabled={busy}
+          style={[styles.cancelButton, { minHeight: theme.minTouch, justifyContent: 'center' }]}
+          hitSlop={8}
+        >
           <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, textAlign: 'center' }}>취소</Text>
         </Pressable>
       </View>

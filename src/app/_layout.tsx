@@ -32,7 +32,6 @@ export default function RootLayout() {
                       name="complete"
                       options={{ title: '결제 완료', headerBackVisible: false, gestureEnabled: false }}
                     />
-                    <Stack.Screen name="navigate" options={{ title: '매장 길 안내' }} />
                     <Stack.Screen name="map" options={{ title: '매장 지도' }} />
                     <Stack.Screen name="products" options={{ title: '상품 보기' }} />
                     <Stack.Screen name="product/[id]" options={{ title: '상품 상세' }} />

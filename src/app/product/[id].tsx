@@ -10,8 +10,7 @@ import { useTheme } from '@/context/ModeContext';
 
 /**
  * 상품 상세 — 상품 보기(/products)나 지도에서 진입한다.
- * "이 상품 팝니다"에 필요한 정보(가격·할인·재고·위치)를 한 화면에 모으고,
- * 바로 길 안내(/navigate)로 넘어갈 수 있게 한다.
+ * "이 상품 팝니다"에 필요한 정보(가격·할인·재고·위치)를 한 화면에 모은다.
  */
 export default function ProductDetailScreen() {
   const theme = useTheme();
@@ -151,11 +150,6 @@ export default function ProductDetailScreen() {
           </View>
         )}
 
-        <PrimaryButton
-          title="이 상품까지 길 안내"
-          leadingIcon="🧭"
-          onPress={() => router.push(`/navigate?productId=${product.id}`)}
-        />
       </ScrollView>
     </SafeAreaView>
   );

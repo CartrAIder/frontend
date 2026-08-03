@@ -5,9 +5,20 @@
  * 로그아웃 전까지 유지되며, 카트 세션(CartSessionContext)은 그 위에서 독립적으로 열린다.
  * 로그인 성공 시 받은 세션(토큰 포함)을 secure-store에 저장해 재시작 후에도 복원한다.
  */
+import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Alert } from 'react-native';
 
-import { isTokenExpired, loginMember, logoutMember, reissueSession, signupMember, toSession, type SignupInput } from '@/lib/api';
+import {
+  isTokenExpired,
+  loginMember,
+  logoutMember,
+  reissueSession,
+  setOnSessionExpired,
+  signupMember,
+  toSession,
+  type SignupInput,
+} from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
 
 export type Member = Pick<MemberSession, 'id' | 'name' | 'email' | 'role'>;
@@ -57,6 +68,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
+  }, []);
+
+  // refresh 토큰까지 만료돼 재발급이 불가능하면(apiFetch가 통지) 자동 로그아웃하고 로그인으로 보낸다.
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      setSession(null); // isAuthenticated=false → 카트/장바구니 캐스케이드 정리
+      Alert.alert('세션 만료', '로그인이 만료되었어요. 다시 로그인해주세요.');
+      router.replace('/login');
+    });
+    return () => setOnSessionExpired(null);
   }, []);
 
   const applySession = useCallback(async (next: MemberSession) => {

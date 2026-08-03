@@ -4,15 +4,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/Card';
-import { PrimaryButton } from '@/components/PrimaryButton';
 import { StoreMap } from '@/components/StoreMap';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
 
 /**
- * 매장 지도 — 길 안내 없이 "지금 매장이 이렇게 생겼다"만 보여주는 화면.
+ * 매장 지도 — "지금 매장이 이렇게 생겼다"만 보여주는 화면.
  * 구역을 탭하면 그 구역에 어떤 상품이 있는지 아래에 펼쳐진다.
- * 경로 안내가 필요하면 하단 버튼으로 /navigate로 넘어간다.
  */
 export default function MapScreen() {
   const theme = useTheme();
@@ -131,12 +129,6 @@ export default function MapScreen() {
           </Card>
         )}
 
-        <PrimaryButton
-          title="상품 위치까지 길 안내 받기"
-          leadingIcon="🧭"
-          variant="neutral"
-          onPress={() => router.push('/navigate')}
-        />
       </ScrollView>
     </SafeAreaView>
   );

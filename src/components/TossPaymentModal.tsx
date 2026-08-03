@@ -137,9 +137,9 @@ export function TossPaymentModal({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onCancel} presentationStyle="fullScreen">
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <View style={[styles.header, { borderBottomColor: colors.border, minHeight: theme.minTouch }]}>
           <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>결제</Text>
-          <Pressable onPress={onCancel} hitSlop={12} style={styles.close}>
+          <Pressable onPress={onCancel} hitSlop={16} style={styles.close}>
             <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>닫기</Text>
           </Pressable>
         </View>
@@ -178,6 +178,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
-  close: { position: 'absolute', right: 16, top: 10, padding: 4 },
+  close: { position: 'absolute', right: 4, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 16 },
   loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
 });
