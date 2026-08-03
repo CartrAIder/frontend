@@ -1,7 +1,7 @@
 import * as MediaLibrary from 'expo-media-library';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
@@ -57,6 +57,15 @@ export default function CompleteScreen() {
 
   const receiptRef = useRef<View>(null);
   const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const totalQty = items.reduce((sum, it) => sum + it.qty, 0);
+  const summaryText =
+    items.length === 0
+      ? '상품 내역 없음'
+      : items.length === 1
+        ? items[0].name
+        : `${items[0].name} 외 ${items.length - 1}개`;
 
   // 결제 완료 화면 진입 = 결제 플로우 종료 → 카트 세션 자동 반납.
   useEffect(() => {
@@ -79,6 +88,11 @@ export default function CompleteScreen() {
       if (!perm.granted) {
         Alert.alert('권한 필요', '영수증을 저장하려면 사진 접근 권한이 필요해요.');
         return;
+      }
+      // 저장 이미지는 항상 전체 내역이 담기도록, 캡처 전에 상세를 펼친다.
+      if (!expanded) {
+        setExpanded(true);
+        await new Promise((resolve) => setTimeout(resolve, 80));
       }
       const uri = await captureRef(receiptRef, { format: 'png', quality: 1 });
       await MediaLibrary.saveToLibraryAsync(uri);
@@ -130,7 +144,9 @@ export default function CompleteScreen() {
 
           <View style={styles.dashed} />
 
-          {items.length > 0 ? (
+          {items.length === 0 ? (
+            <Text style={styles.itemMuted}>상품 내역 없음</Text>
+          ) : expanded ? (
             items.map((it, i) => (
               <View key={`${it.name}-${i}`} style={styles.itemRow}>
                 <Text style={styles.itemName} numberOfLines={1}>
@@ -140,7 +156,12 @@ export default function CompleteScreen() {
               </View>
             ))
           ) : (
-            <Text style={styles.itemMuted}>상품 내역 없음</Text>
+            <View style={styles.itemRow}>
+              <Text style={styles.itemName} numberOfLines={1}>
+                {summaryText}
+              </Text>
+              <Text style={styles.itemQtyMuted}>총 {totalQty}개</Text>
+            </View>
           )}
 
           <View style={styles.dashed} />
@@ -153,13 +174,42 @@ export default function CompleteScreen() {
           <Text style={styles.thanks}>이용해 주셔서 감사합니다 🛒</Text>
         </View>
 
-        <PrimaryButton
-          title={saving ? '저장 중…' : '📥 영수증 이미지 저장'}
-          variant="neutral"
+        {/* 상세정보 보기 — 2개 이상일 때만. 영수증 카드 밖이라 캡처엔 안 들어간다. */}
+        {items.length > 1 && (
+          <Pressable
+            onPress={() => setExpanded((v) => !v)}
+            style={[styles.detailToggle, { minHeight: theme.minTouch }]}
+            hitSlop={8}
+          >
+            <Text style={{ fontSize: theme.fontBody - 1, color: colors.primary, fontWeight: '700' }}>
+              {expanded ? '상세정보 접기 ▴' : '상세정보 보기 ▾'}
+            </Text>
+          </Pressable>
+        )}
+
+        {/* 영수증 저장 — 서비스 톤(브랜드 블루 틴트)에 맞춘 보조 액션 버튼 */}
+        <Pressable
           onPress={handleSaveReceipt}
-          loading={saving}
-          style={{ alignSelf: 'stretch', marginTop: 16 }}
-        />
+          disabled={saving}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            {
+              backgroundColor: colors.primarySurface,
+              borderColor: colors.primary,
+              borderRadius: theme.radius,
+              minHeight: theme.minTouch,
+              opacity: saving || pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          {saving ? (
+            <ActivityIndicator color={colors.primary} />
+          ) : (
+            <Text style={{ fontSize: theme.fontButton, color: colors.primary, fontWeight: '800' }}>
+              📥  영수증 이미지 저장
+            </Text>
+          )}
+        </Pressable>
       </ScrollView>
 
       <PrimaryButton title="쇼핑 종료 · 홈으로" onPress={handleRestart} style={{ marginBottom: 8 }} />
@@ -195,10 +245,21 @@ const styles = StyleSheet.create({
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', paddingVertical: 3, gap: 12 },
   itemName: { fontSize: 15, color: '#111827', flex: 1 },
   itemQty: { color: '#6B7280' },
+  itemQtyMuted: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
   itemAmt: { fontSize: 15, color: '#111827', fontWeight: '600' },
   itemMuted: { fontSize: 14, color: '#9CA3AF', paddingVertical: 6 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', alignItems: 'center' },
   totalK: { fontSize: 15, color: '#111827', fontWeight: '700' },
   totalV: { fontSize: 20, color: '#111827', fontWeight: '800' },
   thanks: { fontSize: 12, color: '#9CA3AF', marginTop: 12 },
+  detailToggle: { alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, marginTop: 10 },
+  saveBtn: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 6,
+  },
 });
