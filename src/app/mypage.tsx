@@ -119,6 +119,34 @@ export default function MyPageScreen() {
           </Card>
         </View>
 
+        {/* 계정 관리 */}
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700', marginLeft: 4 }}>계정</Text>
+          <Card padded={false}>
+            <Pressable
+              onPress={() => router.push('/password-change')}
+              style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
+            >
+              <Text style={{ fontSize: 20 }}>🔒</Text>
+              <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>
+                비밀번호 변경
+              </Text>
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
+            </Pressable>
+            <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+            <Pressable
+              onPress={() => router.push('/withdraw')}
+              style={[styles.menuRow, { minHeight: theme.minTouch, padding: theme.spacing + 2 }]}
+            >
+              <Text style={{ fontSize: 20 }}>👋</Text>
+              <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.danger, fontWeight: '600' }}>
+                회원 탈퇴
+              </Text>
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
+            </Pressable>
+          </Card>
+        </View>
+
         {/* 로그아웃 */}
         <Pressable
           onPress={handleLogout}

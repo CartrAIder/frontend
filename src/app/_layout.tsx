@@ -23,8 +23,11 @@ export default function RootLayout() {
                     <Stack.Screen name="index" options={{ headerShown: false }} />
                     <Stack.Screen name="login" options={{ headerShown: false }} />
                     <Stack.Screen name="signup" options={{ headerShown: false }} />
+                    <Stack.Screen name="password-reset" options={{ title: '비밀번호 찾기' }} />
                     <Stack.Screen name="home" options={{ headerShown: false }} />
                     <Stack.Screen name="mypage" options={{ title: '마이페이지' }} />
+                    <Stack.Screen name="password-change" options={{ title: '비밀번호 변경' }} />
+                    <Stack.Screen name="withdraw" options={{ title: '회원 탈퇴' }} />
                     <Stack.Screen name="connect" options={{ title: '카트 연결' }} />
                     <Stack.Screen name="cart" options={{ title: '내 장바구니' }} />
                     <Stack.Screen name="checkout" options={{ title: '결제 확인' }} />

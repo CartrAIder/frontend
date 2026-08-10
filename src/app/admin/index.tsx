@@ -32,6 +32,13 @@ export default function AdminHomeScreen() {
 
   const menus = [
     {
+      key: 'orders',
+      icon: '🧾',
+      title: '주문 관리',
+      desc: '주문 검색 · 상태별 조회 · 상세 확인',
+      onPress: () => router.push('/admin/orders'),
+    },
+    {
       key: 'products',
       icon: '📦',
       title: '상품 관리',

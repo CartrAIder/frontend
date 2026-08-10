@@ -356,6 +356,82 @@ export async function logoutMember(): Promise<void> {
 }
 
 /**
+ * 회원 탈퇴 — 서버가 계정을 익명화(soft delete)하고 카트 연결·SSE·Refresh Token을 모두 정리한다.
+ * DELETE /api/users/me { currentPassword } → 204
+ * 실패 예: 현재 비밀번호 불일치(400), 결제가 끝나지 않은 주문 존재(409).
+ * 성공 시점에 서버 세션이 사라지므로 호출부가 곧바로 로컬 세션을 비워야 한다(AuthContext.withdraw).
+ */
+export async function withdrawMember(currentPassword: string): Promise<void> {
+  if (!currentPassword) {
+    throw new Error('비밀번호를 입력해주세요.');
+  }
+  await apiFetch<void>('/api/users/me', {
+    method: 'DELETE',
+    body: JSON.stringify({ currentPassword }),
+  });
+}
+
+// ── 비밀번호 재설정 (비로그인) ──────────────────────────────────────────
+// 3단계: 인증번호 발송 → 확인(재설정 토큰 발급) → 새 비밀번호 설정.
+// 전부 인증이 필요 없는 엔드포인트이고, 서버가 이 경로들에서는 Authorization 헤더를
+// 아예 검사하지 않으므로 만료된 토큰이 남아 있어도 그대로 호출할 수 있다.
+
+/** 인증번호 확인 성공 시 받는 1회용 재설정 토큰. expiresIn은 남은 수명(초). */
+export interface PasswordResetToken {
+  resetToken: string;
+  expiresIn: number;
+}
+
+/**
+ * 재설정 인증번호 발송. 계정 존재 여부를 노출하지 않으려고 서버는 미가입 이메일에도 200을 준다
+ * (실제 메일은 가입된 경우에만 나간다). 코드 10분 · 재발송 쿨다운 1분.
+ * POST /api/auth/password-reset/code { email }
+ * 실패 예: 재발송 쿨다운(429), 메일 발송 실패(502).
+ */
+export async function sendPasswordResetCode(email: string): Promise<void> {
+  const normalized = email.trim().toLowerCase();
+  if (!isEmailValid(normalized)) {
+    throw new Error('이메일 형식을 확인해주세요 (예: you@example.com)');
+  }
+  await apiFetch<{ message: string }>('/api/auth/password-reset/code', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized }),
+  });
+}
+
+/**
+ * 인증번호 확인 → 재설정 토큰 발급. 토큰은 1회용이고 수명이 짧다(기본 5분).
+ * POST /api/auth/password-reset/confirm { email, code } → { resetToken, expiresIn }
+ * 실패 예: 코드 불일치(400), 코드 만료·미발급(400).
+ */
+export async function confirmPasswordResetCode(email: string, code: string): Promise<PasswordResetToken> {
+  const normalized = email.trim().toLowerCase();
+  const trimmedCode = code.trim();
+  if (!/^\d{6}$/.test(trimmedCode)) {
+    throw new Error('인증번호 6자리를 입력해주세요.');
+  }
+  return apiFetch<PasswordResetToken>('/api/auth/password-reset/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ email: normalized, code: trimmedCode }),
+  });
+}
+
+/**
+ * 새 비밀번호 설정. 성공하면 서버가 해당 계정의 Refresh Token을 폐기하고 변경 안내 메일을 보낸다.
+ * POST /api/auth/password-reset { resetToken, newPassword } → 200
+ * 실패 예: 토큰 만료·재사용(400).
+ */
+export async function resetPassword(resetToken: string, newPassword: string): Promise<void> {
+  if (!isPasswordValid(newPassword)) {
+    throw new Error(`새 비밀번호는 ${PASSWORD_RULE_TEXT}여야 해요.`);
+  }
+  await apiFetch<void>('/api/auth/password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ resetToken, newPassword }),
+  });
+}
+
+/**
  * 저장된 액세스 토큰이 만료됐는지 검사. (앱 시작 시 세션 복원 후 만료 세션 자동 로그아웃용)
  * 디코드 불가(mock 토큰 등)거나 exp가 없으면 false(만료로 취급하지 않음).
  */
@@ -383,6 +459,47 @@ function decodeJWT(token: string): { sub: string; email?: string; role?: string;
         )
       : Buffer.from(base64, 'base64').toString('utf-8');
   return JSON.parse(json);
+}
+
+/**
+ * 비밀번호 변경(로그인 상태). 서버가 기존 Refresh Token을 폐기하고 새 토큰쌍을 발급하므로
+ * 성공 시 반드시 새 세션으로 교체해야 한다(안 하면 다음 요청부터 401 → 강제 로그아웃).
+ * POST /api/mobile/auth/password { currentPassword, newPassword } → MobileAuthResponse
+ * 실패 예: 현재 비밀번호 불일치(400), 새 비밀번호 형식 위반(400 details).
+ */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+  if (!currentPassword || !newPassword) {
+    throw new Error('현재 비밀번호와 새 비밀번호를 모두 입력해주세요.');
+  }
+  if (!isPasswordValid(newPassword)) {
+    throw new Error(`새 비밀번호는 ${PASSWORD_RULE_TEXT}여야 해요.`);
+  }
+  if (currentPassword === newPassword) {
+    throw new Error('현재 비밀번호와 다른 비밀번호를 입력해주세요.');
+  }
+
+  // 응답에 email이 없으므로 기존 세션의 email을 유지한다(reissueSession과 동일).
+  const session = await loadMemberSession();
+  const data = await apiFetch<MobileAuthResponse>('/api/mobile/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!data?.accessToken) {
+    throw new Error('비밀번호는 변경됐지만 토큰을 받지 못했어요. 다시 로그인해주세요.');
+  }
+
+  const claims = decodeJWT(data.accessToken);
+  resetSessionExpiredFlag();
+  return {
+    member: {
+      id: claims.sub,
+      name: data.name,
+      email: session?.email ?? '',
+      role: claims.role === 'ADMIN' ? 'admin' : 'user',
+    },
+    token: data.accessToken,
+    refreshToken: data.refreshToken,
+  };
 }
 
 // ── 카트 세션 ──────────────────────────────────────────────────────────
@@ -522,6 +639,84 @@ export async function adminUpdateProduct(
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+}
+
+// ── 관리자 주문 조회 ────────────────────────────────────────────────────
+// 조회 전용(ROLE_ADMIN). 주문 상태 변경·환불 API는 아직 백엔드에 없다.
+
+/** 주문 상태 (백엔드 OrderStatus). */
+export type ApiOrderStatus = 'PENDING_PAYMENT' | 'PAID' | 'CANCELED' | 'EXPIRED';
+
+/** 사람이 읽을 상태 라벨 — 목록·상세가 공유한다. */
+export const ORDER_STATUS_LABEL: Record<ApiOrderStatus, string> = {
+  PENDING_PAYMENT: '결제 대기',
+  PAID: '결제 완료',
+  CANCELED: '주문 취소',
+  EXPIRED: '주문 만료',
+};
+
+/** 관리자 주문 목록의 한 줄 (백엔드 AdminOrderSummaryResponse). */
+export interface AdminOrderSummary {
+  id: number;
+  orderId: string;
+  orderName: string;
+  totalAmount: number;
+  status: ApiOrderStatus;
+  userId: number;
+  userName: string;
+  userEmail: string;
+  createdAt: string;
+}
+
+/** 페이지 응답 (백엔드 AdminOrderPageResponse). page는 0부터 시작한다. */
+export interface AdminOrderPage {
+  content: AdminOrderSummary[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
+/** 관리자 주문 상세 (백엔드 AdminOrderDetailResponse). */
+export interface AdminOrderDetail {
+  id: number;
+  orderId: string;
+  orderName: string;
+  totalAmount: number;
+  status: ApiOrderStatus;
+  customer: { id: number; name: string; email: string };
+  items: {
+    id: number;
+    productId: number;
+    productName: string;
+    unitPrice: number;
+    quantity: number;
+    lineAmount: number;
+  }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 주문 목록 검색. GET /api/admin/orders?keyword=&status=&page=&size=
+ * keyword는 주문번호·주문명·고객 이름·이메일을 부분 일치로 훑는다(서버 쿼리 기준).
+ * 정렬은 서버 고정(createdAt DESC)이고 size 상한은 100이다.
+ */
+export async function adminSearchOrders(
+  params: { keyword?: string; status?: ApiOrderStatus | null; page?: number; size?: number } = {},
+): Promise<AdminOrderPage> {
+  // RN의 URLSearchParams는 구현이 제각각이라 쿼리 문자열을 직접 만든다.
+  const query = [`page=${params.page ?? 0}`, `size=${params.size ?? 20}`];
+  const keyword = params.keyword?.trim();
+  if (keyword) query.push(`keyword=${encodeURIComponent(keyword)}`);
+  if (params.status) query.push(`status=${params.status}`);
+
+  return apiFetch<AdminOrderPage>(`/api/admin/orders?${query.join('&')}`);
+}
+
+/** 주문 상세. GET /api/admin/orders/{orderId} — orderId는 PK가 아니라 외부 주문번호(문자열). */
+export async function adminGetOrder(orderId: string): Promise<AdminOrderDetail> {
+  return apiFetch<AdminOrderDetail>(`/api/admin/orders/${encodeURIComponent(orderId)}`);
 }
 
 // ── 결제 (토스페이먼츠) ──────────────────────────────────────────────────
