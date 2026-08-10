@@ -152,8 +152,11 @@ export default function AdminHomeScreen() {
           <Text style={{ fontSize: theme.fontBody, color: colors.danger, fontWeight: '700' }}>데모 데이터로 초기화</Text>
         </Pressable>
 
-        <Text style={{ fontSize: theme.fontBody - 5, color: colors.textMuted, textAlign: 'center' }}>
-          백엔드 연동 전이라 변경 내용은 이 기기에만 저장됩니다.
+        <Text
+          style={{ fontSize: theme.fontBody - 5, color: colors.textMuted, textAlign: 'center', lineHeight: 18 }}
+        >
+          상품 등록·가격·판매상태는 서버에 저장됩니다.{'\n'}
+          재고·구역·아이콘·할인은 이 기기에만 저장됩니다.
         </Text>
       </ScrollView>
     </SafeAreaView>
