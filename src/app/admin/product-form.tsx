@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ProductImage } from '@/components/ProductImage';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
@@ -18,8 +20,6 @@ import { useCatalog, type ProductDraft } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
 import type { Product } from '@/lib/mock/products';
 
-/** 상품 아이콘 후보 — 사진 업로드 대신 이모지로 대표 이미지를 고른다(mock). */
-const ICON_CHOICES = ['🥛', '🍞', '🥫', '💧', '🍎', '🍌', '🍅', '🧀', '🥤', '☕️', '🍚', '🍜', '🥟', '🍨', '🍕', '🍪', '🥔', '🧻', '🧴', '📦'];
 
 /**
  * 상품 등록 / 수정 폼.
@@ -52,7 +52,8 @@ function ProductForm({ editing }: { editing?: Product }) {
   const [stock, setStock] = useState(editing ? String(editing.stock) : '0');
   const [discount, setDiscount] = useState(editing?.discountPercent ? String(editing.discountPercent) : '');
   const [description, setDescription] = useState(editing?.description ?? '');
-  const [icon, setIcon] = useState(editing?.icon ?? ICON_CHOICES[0]);
+  // 대표 이미지는 상품명으로 자동 생성한다(ProductImage). icon 필드는 하위 호환용으로만 남긴다.
+  const icon = editing?.icon ?? '';
   const [zone, setZone] = useState(editing?.zone ?? shelfZones[0]?.id ?? '');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -103,13 +104,14 @@ function ProductForm({ editing }: { editing?: Product }) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="상품 등록" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} keyboardShouldPersistTaps="handled">
           {/* 미리보기 */}
           <Card style={styles.preview}>
             <View style={[styles.previewThumb, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-              <Text style={{ fontSize: 34 }}>{icon}</Text>
+              <ProductImage id={editing?.id ?? name} name={name} zone={zone} size={56} radius={theme.imageRadius} />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }} numberOfLines={1}>
@@ -172,33 +174,6 @@ function ProductForm({ editing }: { editing?: Product }) {
             />
           </Card>
 
-          {/* 대표 아이콘 */}
-          <Card style={{ gap: 10 }}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>대표 아이콘</Text>
-            <View style={styles.iconGrid}>
-              {ICON_CHOICES.map((choice) => {
-                const active = icon === choice;
-                return (
-                  <Pressable
-                    key={choice}
-                    onPress={() => setIcon(choice)}
-                    accessibilityLabel={`아이콘 ${choice}`}
-                    style={[
-                      styles.iconCell,
-                      {
-                        backgroundColor: active ? colors.primarySurface : colors.surface,
-                        borderColor: active ? colors.primary : 'transparent',
-                        borderRadius: theme.radiusSm,
-                      },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 24 }}>{choice}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </Card>
-
           {/* 매장 구역 */}
           <Card style={{ gap: 10 }}>
             <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>매장 구역 *</Text>
@@ -243,7 +218,6 @@ function ProductForm({ editing }: { editing?: Product }) {
 
           <PrimaryButton
             title={isEdit ? '수정 저장' : '상품 등록'}
-            leadingIcon="💾"
             onPress={handleSave}
             loading={submitting}
           />
@@ -258,8 +232,6 @@ const styles = StyleSheet.create({
   preview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   previewThumb: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
   twoCol: { flexDirection: 'row', gap: 10 },
-  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  iconCell: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   zoneGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   zoneChip: {
     flexGrow: 1,

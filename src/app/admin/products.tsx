@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon, type IconName } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCatalog } from '@/context/CatalogContext';
@@ -44,12 +46,13 @@ export default function AdminProductsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="상품 관리" />
       <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} keyboardShouldPersistTaps="handled">
-        <PrimaryButton title="새 상품 등록" leadingIcon="➕" onPress={() => router.push('/admin/product-form')} />
+        <PrimaryButton title="새 상품 등록" onPress={() => router.push('/admin/product-form')} />
 
         <View style={[styles.searchRow, { backgroundColor: colors.surface, borderRadius: theme.radiusSm, minHeight: theme.minTouch }]}>
-          <Text style={{ fontSize: theme.fontBody }}>🔎</Text>
+          <Icon name="search" size={theme.fontBody + 2} color={colors.textMuted} />
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -118,12 +121,14 @@ export default function AdminProductsScreen() {
 
               <View style={styles.actionRow}>
                 <ActionButton
-                  label="✏️ 수정"
+                  icon="settings"
+                  label="수정"
                   onPress={() => router.push(`/admin/product-form?id=${product.id}`)}
                   color={colors.primary}
                 />
                 <ActionButton
-                  label="🗑️ 삭제"
+                  icon="trash"
+                  label="삭제"
                   onPress={() => confirmDelete(product.id, product.name)}
                   color={colors.danger}
                 />
@@ -166,7 +171,17 @@ function StepButton({ label, onPress, disabled }: { label: string; onPress: () =
   );
 }
 
-function ActionButton({ label, onPress, color }: { label: string; onPress: () => void; color: string }) {
+function ActionButton({
+  label,
+  icon,
+  onPress,
+  color,
+}: {
+  label: string;
+  icon: IconName;
+  onPress: () => void;
+  color: string;
+}) {
   const theme = useTheme();
   return (
     <Pressable
@@ -176,6 +191,7 @@ function ActionButton({ label, onPress, color }: { label: string; onPress: () =>
         { borderColor: color, borderRadius: theme.radiusSm, minHeight: theme.minTouch - 6 },
       ]}
     >
+      <Icon name={icon} size={theme.fontBody} color={color} />
       <Text style={{ fontSize: theme.fontBody - 1, color, fontWeight: '700' }}>{label}</Text>
     </Pressable>
   );
@@ -189,6 +205,6 @@ const styles = StyleSheet.create({
   stockRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
   stepButton: { width: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
   actionRow: { flexDirection: 'row', gap: 8 },
-  actionButton: { flex: 1, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
+  actionButton: { flex: 1, flexDirection: 'row', gap: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   empty: { paddingVertical: 40, alignItems: 'center' },
 });

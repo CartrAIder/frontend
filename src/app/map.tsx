@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { StoreMap } from '@/components/StoreMap';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
@@ -23,7 +25,8 @@ export default function MapScreen() {
   const zoneProducts = selectedZoneId ? productsInZone(selectedZoneId) : [];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="매장 지도" />
       <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }}>
         <Card style={{ gap: 10 }}>
           <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>
@@ -94,10 +97,10 @@ export default function MapScreen() {
           <Card style={{ gap: 10 }}>
             <View style={styles.sheetHead}>
               <Text style={{ fontSize: theme.fontButton, color: colors.text, fontWeight: '800' }}>
-                {selectedZone.icon} {selectedZone.label}
+                {selectedZone.label}
               </Text>
               <Pressable onPress={() => setSelectedZoneId(null)} hitSlop={10} accessibilityLabel="닫기">
-                <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>✕</Text>
+                <Icon name="close" size={theme.fontBody + 2} color={colors.textMuted} />
               </Pressable>
             </View>
 

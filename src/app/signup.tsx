@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useAuth } from '@/context/AuthContext';
@@ -165,7 +167,7 @@ export default function SignupScreen() {
     return (
       <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]}>
         <View style={[styles.successBadge, { backgroundColor: colors.successSurface }]}>
-          <Text style={{ fontSize: 44, color: colors.success, fontWeight: '800' }}>✓</Text>
+          <Icon name="check" size={44} color={colors.success} strokeWidth={3.2} />
         </View>
         <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.text, marginTop: 20 }]}>
           가입 완료!
@@ -179,6 +181,7 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={[styles.scroll, { padding: 24, gap: theme.spacing }]}
@@ -231,9 +234,12 @@ export default function SignupScreen() {
               {emailVerified ? (
                 // ── 인증 완료 ──
                 <View style={styles.verifiedRow}>
-                  <Text style={{ fontSize: theme.fontBody, color: colors.success, fontWeight: '700' }}>
-                    ✓ 이메일 인증 완료
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Icon name="check" size={theme.fontBody} color={colors.success} strokeWidth={3} />
+                    <Text style={{ fontSize: theme.fontBody, color: colors.success, fontWeight: '700' }}>
+                      이메일 인증 완료
+                    </Text>
+                  </View>
                   <Pressable onPress={resetVerification} hitSlop={8}>
                     <Text style={{ fontSize: theme.fontBody, color: colors.primary, fontWeight: '600' }}>변경</Text>
                   </Pressable>
@@ -369,14 +375,15 @@ export default function SignupScreen() {
   );
 }
 
-/** 비밀번호 조건 한 칸 — 충족 시 초록 ✓, 미충족 시 회색 ○ */
+/** 비밀번호 조건 한 칸 — 충족 시 초록 체크, 미충족 시 회색 대시. */
 function Requirement({ met, label }: { met: boolean; label: string }) {
   const theme = useTheme();
   const { colors } = theme;
   return (
-    <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>
-      {met ? '✓' : '○'} {label}
-    </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <Icon name={met ? 'check' : 'minus'} size={theme.fontBody - 3} color={met ? colors.success : colors.textMuted} strokeWidth={3} />
+      <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>{label}</Text>
+    </View>
   );
 }
 

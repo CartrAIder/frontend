@@ -6,19 +6,18 @@ import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 
+import { AppBar } from '@/components/AppBar';
+import { Icon } from '@/components/Icon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCartSession } from '@/context/CartSessionContext';
 import { useTheme } from '@/context/ModeContext';
+import { formatWon } from '@/lib/format';
 import { speakKo, stopSpeaking } from '@/lib/speak';
 
 interface ReceiptItem {
   name: string;
   qty: number;
   unitPrice: number;
-}
-
-function formatWon(n: number): string {
-  return `₩${n.toLocaleString('ko-KR')}`;
 }
 
 function formatDateTime(ms: number): string {
@@ -28,7 +27,7 @@ function formatDateTime(ms: number): string {
 }
 
 /**
- * (4) 결제 완료 화면 — QR + 주문 내역 영수증을 보여주고 이미지로 저장(다운로드)할 수 있다.
+ * 결제 완료 — 성공 헤더 + 결제 금액 + QR 영수증 + 저장/홈.
  * 영수증 데이터는 방금 결제한 주문(카트에서 캡처)으로 구성하므로 서버 조회가 필요 없다.
  */
 export default function CompleteScreen() {
@@ -110,36 +109,53 @@ export default function CompleteScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-        <View style={[styles.checkRing, { backgroundColor: colors.successSurface }]}>
-          <View style={[styles.checkCircle, { backgroundColor: colors.success }]}>
-            <Text style={styles.checkMark}>✓</Text>
-          </View>
-        </View>
-        <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.text }]}>결제 완료!</Text>
-        <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, marginBottom: 6 }}>
-          결제가 성공적으로 처리되었어요
-        </Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="결제 완료" showBack={false} />
 
-        {/* 캡처 대상 영수증 — 문서처럼 일관되게 보이도록 흰 배경 + 고정 스타일 */}
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        {/* 성공 헤더 — 금액을 가장 크게 */}
+        <View style={styles.successHead}>
+          <View style={[styles.checkRing, { backgroundColor: colors.successSurface }]}>
+            <View style={[styles.checkCircle, { backgroundColor: colors.success }]}>
+              <Icon name="check" size={30} color="#FFFFFF" strokeWidth={3.2} />
+            </View>
+          </View>
+          <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>결제가 완료되었어요</Text>
+          <Text style={{ fontSize: theme.fontDisplay, color: colors.text, fontWeight: '800', letterSpacing: -0.5 }}>
+            {formatWon(amount)}
+          </Text>
+          <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}>
+            {summaryText} · 총 {totalQty}개
+          </Text>
+        </View>
+
+        {/* 영수증 카드 (캡처 대상) */}
         <View ref={receiptRef} collapsable={false} style={styles.receipt}>
-          <Text style={styles.brand}>CartrAIder</Text>
-          <Text style={styles.receiptLabel}>결제 영수증</Text>
+          <View style={styles.receiptHead}>
+            <Text style={styles.brand}>CartrAIder</Text>
+            <Text style={styles.receiptLabel}>결제 영수증</Text>
+          </View>
 
           <View style={styles.qrWrap}>
-            <QRCode value={receiptId} size={132} />
+            <QRCode value={receiptId} size={124} />
           </View>
+          <Text style={styles.qrHint}>계산대에서 이 코드를 보여주세요</Text>
+
+          <View style={styles.dashed} />
 
           <View style={styles.metaRow}>
             <Text style={styles.metaK}>주문번호</Text>
-            <Text style={styles.metaV} numberOfLines={1}>
+            <Text style={styles.metaV} numberOfLines={1} ellipsizeMode="middle">
               {receiptId}
             </Text>
           </View>
           <View style={styles.metaRow}>
             <Text style={styles.metaK}>결제일시</Text>
             <Text style={styles.metaV}>{formatDateTime(paidAt)}</Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaK}>결제수단</Text>
+            <Text style={styles.metaV}>토스페이먼츠</Text>
           </View>
 
           <View style={styles.dashed} />
@@ -150,8 +166,9 @@ export default function CompleteScreen() {
             items.map((it, i) => (
               <View key={`${it.name}-${i}`} style={styles.itemRow}>
                 <Text style={styles.itemName} numberOfLines={1}>
-                  {it.name} <Text style={styles.itemQty}>× {it.qty}</Text>
+                  {it.name}
                 </Text>
+                <Text style={styles.itemQty}>{it.qty}개</Text>
                 <Text style={styles.itemAmt}>{formatWon(it.unitPrice * it.qty)}</Text>
               </View>
             ))
@@ -160,7 +177,7 @@ export default function CompleteScreen() {
               <Text style={styles.itemName} numberOfLines={1}>
                 {summaryText}
               </Text>
-              <Text style={styles.itemQtyMuted}>총 {totalQty}개</Text>
+              <Text style={styles.itemQty}>총 {totalQty}개</Text>
             </View>
           )}
 
@@ -171,95 +188,124 @@ export default function CompleteScreen() {
             <Text style={styles.totalV}>{formatWon(amount)}</Text>
           </View>
 
-          <Text style={styles.thanks}>이용해 주셔서 감사합니다 🛒</Text>
+          <Text style={styles.thanks}>이용해 주셔서 감사합니다</Text>
         </View>
 
         {/* 상세정보 보기 — 2개 이상일 때만. 영수증 카드 밖이라 캡처엔 안 들어간다. */}
-        {items.length > 1 && (
+        {items.length > 1 ? (
           <Pressable
             onPress={() => setExpanded((v) => !v)}
             style={[styles.detailToggle, { minHeight: theme.minTouch }]}
             hitSlop={8}
           >
-            <Text style={{ fontSize: theme.fontBody - 1, color: colors.primary, fontWeight: '700' }}>
-              {expanded ? '상세정보 접기 ▴' : '상세정보 보기 ▾'}
+            <Text style={{ fontSize: theme.fontBody - 1, color: colors.textMuted, fontWeight: '700' }}>
+              {expanded ? '상세 접기' : '상품 상세 보기'}
             </Text>
+            <Icon name={expanded ? 'chevronLeft' : 'chevronRight'} size={14} color={colors.textMuted} strokeWidth={2.6} />
           </Pressable>
-        )}
+        ) : null}
+      </ScrollView>
 
-        {/* 영수증 저장 — 서비스 톤(브랜드 블루 틴트)에 맞춘 보조 액션 버튼 */}
+      {/* 하단 고정 액션 */}
+      <View style={[styles.footer, { borderTopColor: colors.border }]}>
         <Pressable
           onPress={handleSaveReceipt}
           disabled={saving}
           style={({ pressed }) => [
             styles.saveBtn,
             {
-              backgroundColor: colors.primarySurface,
-              borderColor: colors.primary,
-              borderRadius: theme.radius,
+              borderColor: colors.border,
+              borderRadius: theme.radiusSm,
               minHeight: theme.minTouch,
-              opacity: saving || pressed ? 0.7 : 1,
+              opacity: saving || pressed ? 0.6 : 1,
             },
           ]}
+          accessibilityLabel="영수증 이미지 저장"
         >
           {saving ? (
-            <ActivityIndicator color={colors.primary} />
+            <ActivityIndicator color={colors.text} />
           ) : (
-            <Text style={{ fontSize: theme.fontButton, color: colors.primary, fontWeight: '800' }}>
-              📥  영수증 이미지 저장
-            </Text>
+            <>
+              <Icon name="receipt" size={18} color={colors.text} />
+              <Text style={{ fontSize: theme.fontBody - 1, color: colors.text, fontWeight: '700' }}>영수증 저장</Text>
+            </>
           )}
         </Pressable>
-      </ScrollView>
-
-      <PrimaryButton title="쇼핑 종료 · 홈으로" onPress={handleRestart} style={{ marginBottom: 8 }} />
+        <View style={{ flex: 1 }}>
+          <PrimaryButton title="쇼핑 종료" onPress={handleRestart} />
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20 },
-  body: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 16 },
-  checkRing: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-  checkCircle: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
-  checkMark: { fontSize: 32, color: '#FFFFFF', fontWeight: '800' },
-  title: { fontWeight: '800' },
+  container: { flex: 1 },
+  body: { paddingHorizontal: 20, paddingBottom: 20, gap: 16 },
+  successHead: { alignItems: 'center', gap: 5, paddingTop: 8, paddingBottom: 4 },
+  checkRing: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  checkCircle: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
+
   // ── 영수증(문서) — 캡처 이미지가 모드와 무관하게 일관되도록 고정 스타일 ──
   receipt: {
     alignSelf: 'stretch',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 20,
+    borderColor: '#EDF0F5',
+    paddingHorizontal: 22,
+    paddingVertical: 22,
     alignItems: 'center',
-    gap: 4,
   },
-  brand: { fontSize: 20, fontWeight: '800', color: '#2563EB', letterSpacing: 0.3 },
-  receiptLabel: { fontSize: 13, color: '#6B7280', marginBottom: 8 },
-  qrWrap: { padding: 8, backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 8 },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', paddingVertical: 2 },
-  metaK: { fontSize: 13, color: '#6B7280' },
-  metaV: { fontSize: 13, color: '#111827', fontWeight: '600', flexShrink: 1, marginLeft: 12 },
-  dashed: { alignSelf: 'stretch', height: 1, borderTopWidth: 1, borderStyle: 'dashed', borderColor: '#D1D5DB', marginVertical: 10 },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', paddingVertical: 3, gap: 12 },
-  itemName: { fontSize: 15, color: '#111827', flex: 1 },
-  itemQty: { color: '#6B7280' },
-  itemQtyMuted: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
-  itemAmt: { fontSize: 15, color: '#111827', fontWeight: '600' },
-  itemMuted: { fontSize: 14, color: '#9CA3AF', paddingVertical: 6 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', alignItems: 'center' },
-  totalK: { fontSize: 15, color: '#111827', fontWeight: '700' },
-  totalV: { fontSize: 20, color: '#111827', fontWeight: '800' },
-  thanks: { fontSize: 12, color: '#9CA3AF', marginTop: 12 },
-  detailToggle: { alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, marginTop: 10 },
-  saveBtn: {
+  receiptHead: { alignItems: 'center', gap: 2, marginBottom: 14 },
+  brand: { fontSize: 19, fontWeight: '800', color: '#2563EB', letterSpacing: -0.3 },
+  receiptLabel: { fontSize: 12, color: '#9CA3AF', letterSpacing: 1.5 },
+  qrWrap: { padding: 10, backgroundColor: '#FFFFFF', borderRadius: 12 },
+  qrHint: { fontSize: 11, color: '#9CA3AF', marginTop: 6 },
+  dashed: {
     alignSelf: 'stretch',
+    height: 1,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#E5E7EB',
+    marginVertical: 14,
+  },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', paddingVertical: 3, gap: 12 },
+  metaK: { fontSize: 13, color: '#9CA3AF' },
+  metaV: { fontSize: 13, color: '#111827', fontWeight: '600', flexShrink: 1 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', paddingVertical: 4, gap: 10 },
+  itemName: { fontSize: 14, color: '#111827', flex: 1 },
+  itemQty: { fontSize: 13, color: '#9CA3AF' },
+  itemAmt: { fontSize: 14, color: '#111827', fontWeight: '700', minWidth: 72, textAlign: 'right' },
+  itemMuted: { fontSize: 13, color: '#9CA3AF', paddingVertical: 6 },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', alignItems: 'baseline' },
+  totalK: { fontSize: 14, color: '#111827', fontWeight: '700' },
+  totalV: { fontSize: 22, color: '#111827', fontWeight: '800', letterSpacing: -0.5 },
+  thanks: { fontSize: 11, color: '#C4C9D2', marginTop: 16 },
+
+  detailToggle: {
+    alignSelf: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 3,
+    paddingVertical: 6,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  saveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
     borderWidth: 1.5,
-    paddingVertical: 12,
     paddingHorizontal: 16,
-    marginTop: 6,
   },
 });

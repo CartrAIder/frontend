@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useAuth } from '@/context/AuthContext';
@@ -60,9 +62,9 @@ export default function PasswordChangeScreen() {
   // ── 완료 화면 ────────────────────────────────────────────────────────
   if (succeeded) {
     return (
-      <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]} edges={['bottom']}>
+      <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
         <View style={[styles.successBadge, { backgroundColor: colors.successSurface }]}>
-          <Text style={{ fontSize: 44, color: colors.success, fontWeight: '800' }}>✓</Text>
+          <Icon name="check" size={44} color={colors.success} strokeWidth={3.2} />
         </View>
         <Text style={{ fontSize: theme.fontTitle, color: colors.text, fontWeight: '800', marginTop: 20 }}>
           비밀번호를 바꿨어요
@@ -77,7 +79,8 @@ export default function PasswordChangeScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="비밀번호 변경" />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={{ padding: 20, gap: theme.spacing }}
@@ -170,9 +173,10 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
   const theme = useTheme();
   const { colors } = theme;
   return (
-    <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>
-      {met ? '✓' : '○'} {label}
-    </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <Icon name={met ? 'check' : 'minus'} size={theme.fontBody - 3} color={met ? colors.success : colors.textMuted} strokeWidth={3} />
+      <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>{label}</Text>
+    </View>
   );
 }
 

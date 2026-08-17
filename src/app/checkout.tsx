@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandLoaderOverlay } from '@/components/BrandLoader';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TossPaymentModal, type TossFail, type TossSuccess } from '@/components/TossPaymentModal';
@@ -132,7 +134,8 @@ export default function CheckoutScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="결제 확인" />
       <ScrollView contentContainerStyle={{ gap: theme.spacing, paddingVertical: theme.spacing }}>
         <Card style={{ gap: 8 }}>
           <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>주문 내역</Text>
@@ -185,6 +188,11 @@ export default function CheckoutScreen() {
           <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, textAlign: 'center' }}>취소</Text>
         </Pressable>
       </View>
+
+      <BrandLoaderOverlay
+        visible={confirming}
+        message={'결제를 승인하는 중이에요\n창을 닫지 말고 잠시만 기다려주세요'}
+      />
 
       {toss && (
         <TossPaymentModal

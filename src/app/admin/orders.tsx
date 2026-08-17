@@ -1,8 +1,11 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CardListSkeleton } from '@/components/Skeleton';
+import { Icon } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { useTheme } from '@/context/ModeContext';
@@ -78,7 +81,8 @@ export default function AdminOrdersScreen() {
   const totalPages = data?.totalPages ?? 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="주문 관리" />
       <ScrollView
         contentContainerStyle={{ padding: 20, gap: theme.spacing }}
         keyboardShouldPersistTaps="handled"
@@ -91,7 +95,7 @@ export default function AdminOrdersScreen() {
             { backgroundColor: colors.surface, borderRadius: theme.radiusSm, minHeight: theme.minTouch },
           ]}
         >
-          <Text style={{ fontSize: theme.fontBody }}>🔎</Text>
+          <Icon name="search" size={theme.fontBody + 2} color={colors.textMuted} />
           <TextInput
             value={keywordInput}
             onChangeText={setKeywordInput}
@@ -112,7 +116,7 @@ export default function AdminOrdersScreen() {
               }}
               hitSlop={8}
             >
-              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>✕</Text>
+              <Icon name="close" size={theme.fontBody + 2} color={colors.textMuted} />
             </Pressable>
           )}
         </View>
@@ -154,11 +158,7 @@ export default function AdminOrdersScreen() {
           </Text>
         )}
 
-        {loading && (
-          <View style={styles.stateBox}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        )}
+        {loading && <CardListSkeleton count={4} />}
 
         {error && !loading && (
           <View style={[styles.errorBox, { borderColor: colors.danger }]}>

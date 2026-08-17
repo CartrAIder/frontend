@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { StoreMap } from '@/components/StoreMap';
 import { TextField } from '@/components/TextField';
@@ -10,7 +11,6 @@ import { useTheme } from '@/context/ModeContext';
 import { SHELF_ROWS, GRID_COLS, ZONE_COLOR_PALETTE } from '@/lib/mock/storeMap';
 
 /** 관리자 지도 편집 — 구역을 골라 이름·아이콘·색상을 바꾸고, 매대 칸으로 옮긴다. */
-const ZONE_ICON_CHOICES = ['🥬', '🥛', '🥤', '🥫', '🧊', '🍞', '🍫', '🧻', '🧴', '🐟', '🥩', '📦'];
 
 export default function AdminMapScreen() {
   const theme = useTheme();
@@ -21,7 +21,8 @@ export default function AdminMapScreen() {
   const selected = findZone(selectedId);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="매장 지도 편집" />
       <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} keyboardShouldPersistTaps="handled">
         {/* 지도 미리보기 — 구역을 탭해서 편집 대상 선택 */}
         <Card style={{ gap: 10 }}>
@@ -37,7 +38,7 @@ export default function AdminMapScreen() {
             <Card style={{ gap: 10 }}>
               <View style={styles.sectionHead}>
                 <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>
-                  {selected.icon} {selected.label} 위치
+                  {selected.label} 위치
                 </Text>
                 <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
                   칸을 누르면 그 자리로 옮기고, 이미 다른 구역이 있으면 서로 자리를 바꿉니다.
@@ -64,7 +65,7 @@ export default function AdminMapScreen() {
                             },
                           ]}
                         >
-                          <Text style={{ fontSize: 20 }}>{occupant?.icon ?? '＋'}</Text>
+                          <Text style={{ fontSize: theme.fontBody - 4, color: colors.text, fontWeight: '700' }} numberOfLines={2}>{occupant?.label ?? '+'}</Text>
                           <Text
                             style={{ fontSize: theme.fontBody - 5, color: '#1F2937', fontWeight: '700' }}
                             numberOfLines={1}
@@ -87,31 +88,6 @@ export default function AdminMapScreen() {
                 onChangeText={(text) => updateZone(selected.id, { label: text })}
                 placeholder="예) 유제품"
               />
-
-              <View style={{ gap: 8 }}>
-                <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>구역 아이콘</Text>
-                <View style={styles.chipWrap}>
-                  {ZONE_ICON_CHOICES.map((choice) => {
-                    const active = selected.icon === choice;
-                    return (
-                      <Pressable
-                        key={choice}
-                        onPress={() => updateZone(selected.id, { icon: choice })}
-                        style={[
-                          styles.iconCell,
-                          {
-                            backgroundColor: active ? colors.primarySurface : colors.surface,
-                            borderColor: active ? colors.primary : 'transparent',
-                            borderRadius: theme.radiusSm,
-                          },
-                        ]}
-                      >
-                        <Text style={{ fontSize: 22 }}>{choice}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
 
               <View style={{ gap: 8 }}>
                 <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}>구역 색상</Text>
@@ -156,7 +132,7 @@ export default function AdminMapScreen() {
                       style={[styles.productChip, { backgroundColor: colors.surface, borderRadius: 999 }]}
                     >
                       <Text style={{ fontSize: theme.fontBody - 3, color: colors.text }}>
-                        {p.icon} {p.name}
+                        {p.name}
                       </Text>
                     </View>
                   ))}
@@ -176,7 +152,6 @@ const styles = StyleSheet.create({
   slotRow: { flexDirection: 'row', gap: 8 },
   slot: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 4 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  iconCell: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   colorCell: { width: 46, height: 34 },
   productChip: { paddingHorizontal: 10, paddingVertical: 6 },
 });

@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandLoaderOverlay } from '@/components/BrandLoader';
+import { AppBar } from '@/components/AppBar';
+import { Icon } from '@/components/Icon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useCartSession } from '@/context/CartSessionContext';
@@ -63,7 +66,8 @@ export default function CartConnectScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="카트 연결" />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={styles.body}
@@ -127,8 +131,9 @@ export default function CartConnectScreen() {
               onPress={() => setManualMode(true)}
               style={[styles.secondaryButton, { backgroundColor: colors.primarySurface, minHeight: theme.minTouch, borderRadius: theme.radiusSm }]}
             >
+              <Icon name="grid" size={theme.fontButton} color={colors.primary} />
               <Text style={{ fontSize: theme.fontButton, color: colors.primary, fontWeight: '700' }}>
-                ⌨️  직접 코드 입력하기
+                직접 코드 입력하기
               </Text>
             </Pressable>
           )}
@@ -138,13 +143,15 @@ export default function CartConnectScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <BrandLoaderOverlay visible={connecting} message="카트에 연결하는 중이에요" />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20 },
-  body: { flexGrow: 1, justifyContent: 'center', gap: 20, paddingVertical: 16 },
+  container: { flex: 1 },
+  body: { flexGrow: 1, justifyContent: 'center', gap: 20, paddingHorizontal: 20, paddingVertical: 8 },
   title: { fontWeight: '800', textAlign: 'center' },
   desc: { textAlign: 'center', lineHeight: 24 },
   qrBox: {
@@ -162,7 +169,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-  secondaryButton: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 14 },
+  secondaryButton: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 14 },
   linkRow: { alignItems: 'center', paddingVertical: 8 },
   corner: { position: 'absolute', width: 34, height: 34 },
   cornerTL: { top: 18, left: 18, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 10 },
