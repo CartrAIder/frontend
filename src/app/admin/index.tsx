@@ -2,6 +2,8 @@ import { useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon, type IconName } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { useAuth } from '@/context/AuthContext';
 import { useCatalog } from '@/context/CatalogContext';
@@ -33,28 +35,28 @@ export default function AdminHomeScreen() {
   const menus = [
     {
       key: 'orders',
-      icon: '🧾',
+      icon: 'receipt' as IconName,
       title: '주문 관리',
       desc: '주문 검색 · 상태별 조회 · 상세 확인',
       onPress: () => router.push('/admin/orders'),
     },
     {
       key: 'products',
-      icon: '📦',
+      icon: 'box' as IconName,
       title: '상품 관리',
       desc: '상품 등록 · 가격/재고 수정 · 삭제',
       onPress: () => router.push('/admin/products'),
     },
     {
       key: 'new',
-      icon: '➕',
+      icon: 'plus' as IconName,
       title: '새 상품 등록',
       desc: '이름 · 가격 · 구역 · 재고 입력',
       onPress: () => router.push('/admin/product-form'),
     },
     {
       key: 'map',
-      icon: '🗺️',
+      icon: 'map' as IconName,
       title: '매장 지도 편집',
       desc: '구역 이름 · 위치 · 색상 변경',
       onPress: () => router.push('/admin/map'),
@@ -69,7 +71,8 @@ export default function AdminHomeScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="관리자 콘솔" onBack={() => router.replace('/home')} />
       <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }}>
         {/* 관리자 배너 */}
         <View style={[styles.banner, theme.shadowCard, { backgroundColor: colors.text, borderRadius: theme.radius }]}>
@@ -82,7 +85,7 @@ export default function AdminHomeScreen() {
             </Text>
             <Text style={{ fontSize: theme.fontBody - 2, color: '#FFFFFF', opacity: 0.75 }}>{member?.email}</Text>
           </View>
-          <Text style={{ fontSize: 40 }}>🛠️</Text>
+          <Icon name="settings" size={34} color="#FFFFFF" strokeWidth={1.8} />
         </View>
 
         {/* 요약 통계 */}
@@ -101,7 +104,7 @@ export default function AdminHomeScreen() {
         {/* 조치가 필요한 항목 */}
         {(soldOut.length > 0 || lowStock.length > 0 || unassigned.length > 0) && (
           <Card style={{ gap: 8 }}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>⚠️ 확인이 필요해요</Text>
+            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>확인이 필요해요</Text>
             {soldOut.length > 0 && (
               <AlertLine
                 tone={colors.danger}
@@ -132,7 +135,7 @@ export default function AdminHomeScreen() {
             <Pressable key={m.key} onPress={m.onPress} accessibilityRole="button">
               <Card style={styles.menuRow}>
                 <View style={[styles.menuIcon, { backgroundColor: colors.primarySurface, borderRadius: theme.radiusSm }]}>
-                  <Text style={{ fontSize: 22 }}>{m.icon}</Text>
+                  <Icon name={m.icon} size={22} color={colors.primary} />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>{m.title}</Text>

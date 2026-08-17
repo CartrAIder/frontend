@@ -1,12 +1,19 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Card } from '@/components/Card';
-import { useCatalog, salePrice } from '@/context/CatalogContext';
+import { ProductGridSkeleton } from '@/components/Skeleton';
+import { TabTransition } from '@/components/TabTransition';
+import { AppBar } from '@/components/AppBar';
+import { BottomTabBar, useTabBarPadding } from '@/components/BottomTabBar';
+import { Icon } from '@/components/Icon';
+import { Chip, EmptyState, ProductCard, SearchBar } from '@/components/commerce';
+import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
-import type { Product } from '@/lib/mock/products';
+
+const SCREEN_W = Dimensions.get('window').width;
+const GUTTER = 20;
 
 type SortKey = 'recommended' | 'priceAsc' | 'priceDesc' | 'name';
 
@@ -17,18 +24,22 @@ const SORT_LABELS: Record<SortKey, string> = {
   name: '이름순',
 };
 
+const SORT_ORDER: SortKey[] = ['recommended', 'priceAsc', 'priceDesc', 'name'];
+
 /**
- * 상품 보기 — "이 매장에서 이런 걸 팝니다" 검색 화면.
- * 검색어·구역(카테고리)·정렬·할인만 보기로 좁혀 보고, 탭하면 상세로 들어간다.
+ * 카테고리 · 검색 — 매장 상품을 훑어보는 화면.
+ * 홈의 카테고리 칩에서 `?zone=` 으로 넘어오면 해당 구역이 선택된 상태로 열린다.
  */
 export default function ProductsScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { products, shelfZones, findZone } = useCatalog();
+  const params = useLocalSearchParams<{ zone?: string }>();
+  const { products, shelfZones, findZone, isRestoring } = useCatalog();
+  const bottomPad = useTabBarPadding();
 
   const [query, setQuery] = useState('');
-  const [zoneFilter, setZoneFilter] = useState<string | null>(null);
+  const [zoneFilter, setZoneFilter] = useState<string | null>(params.zone ?? null);
   const [sort, setSort] = useState<SortKey>('recommended');
   const [discountOnly, setDiscountOnly] = useState(false);
 
@@ -58,7 +69,7 @@ export default function ProductsScreen() {
         sorted.sort((a, b) => a.name.localeCompare(b.name, 'ko-KR'));
         break;
       default:
-        // 추천순: 할인 상품 먼저, 그다음 품절 상품을 뒤로.
+        // 추천순: 할인 상품 먼저, 품절은 뒤로.
         sorted.sort(
           (a, b) =>
             Number(b.discountPercent ?? 0) - Number(a.discountPercent ?? 0) ||
@@ -68,202 +79,127 @@ export default function ProductsScreen() {
     return sorted;
   }, [products, query, zoneFilter, discountOnly, sort, findZone]);
 
-  const chips = [{ id: null as string | null, label: '전체', icon: '🧺' }, ...shelfZones.map((z) => ({ id: z.id, label: z.label, icon: z.icon }))];
+  const cardW =
+    theme.gridColumns === 1
+      ? SCREEN_W - GUTTER * 2
+      : Math.floor((SCREEN_W - GUTTER * 2 - theme.spacing) / 2);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
-      <ScrollView
-        contentContainerStyle={{ padding: 20, gap: theme.spacing }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* 검색창 */}
-        <View style={[styles.searchRow, { backgroundColor: colors.surface, borderRadius: theme.radiusSm, minHeight: theme.minTouch }]}>
-          <Text style={{ fontSize: theme.fontBody }}>🔎</Text>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="상품명·브랜드로 검색"
-            placeholderTextColor={colors.textMuted}
-            style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, paddingVertical: 12 }}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <Pressable onPress={() => setQuery('')} hitSlop={10} accessibilityLabel="검색어 지우기">
-              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>✕</Text>
-            </Pressable>
-          )}
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <TabTransition>
+        <AppBar title="카테고리" onBack={() => router.replace('/home')} />
 
-        {/* 카테고리(구역) 칩 */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-          {chips.map((chip) => {
-            const active = zoneFilter === chip.id;
-            return (
-              <Pressable
-                key={chip.id ?? 'all'}
-                onPress={() => setZoneFilter(chip.id)}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: active ? colors.primary : colors.card,
-                    borderColor: active ? colors.primary : colors.border,
-                    borderRadius: 999,
-                    minHeight: theme.minTouch - 8,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    fontSize: theme.fontBody - 2,
-                    color: active ? colors.primaryText : colors.text,
-                    fontWeight: '700',
-                  }}
-                >
-                  {chip.icon} {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        {/* 검색 헤더 (고정) */}
+        <View style={[styles.header, { backgroundColor: colors.background, paddingHorizontal: GUTTER }]}>
+          <SearchBar value={query} onChangeText={setQuery} placeholder="상품명 · 브랜드로 검색" />
 
-        {/* 정렬 · 필터 */}
-        <View style={styles.toolRow}>
-          <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>
-            {results.length}개 상품
-          </Text>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={() => setDiscountOnly((v) => !v)}
-            style={[
-              styles.toolButton,
-              {
-                backgroundColor: discountOnly ? colors.warningSurface : colors.card,
-                borderColor: discountOnly ? colors.warningText : colors.border,
-                borderRadius: theme.radiusSm,
-              },
-            ]}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
           >
-            <Text
-              style={{
-                fontSize: theme.fontBody - 3,
-                color: discountOnly ? colors.warningText : colors.textMuted,
-                fontWeight: '700',
-              }}
-            >
-              🏷️ 할인만
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              const order: SortKey[] = ['recommended', 'priceAsc', 'priceDesc', 'name'];
-              setSort(order[(order.indexOf(sort) + 1) % order.length]);
-            }}
-            style={[styles.toolButton, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: theme.radiusSm }]}
-            accessibilityLabel={`정렬 ${SORT_LABELS[sort]}, 눌러서 변경`}
-          >
-            <Text style={{ fontSize: theme.fontBody - 3, color: colors.text, fontWeight: '700' }}>
-              ⇅ {SORT_LABELS[sort]}
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* 결과 목록 */}
-        {results.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={{ fontSize: 40 }}>🗂️</Text>
-            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, textAlign: 'center' }}>
-              조건에 맞는 상품이 없어요.{'\n'}검색어나 카테고리를 바꿔보세요.
-            </Text>
-          </View>
-        ) : (
-          <View style={{ gap: 10 }}>
-            {results.map((product) => (
-              <ProductRow
-                key={product.id}
-                product={product}
-                zoneLabel={findZone(product.zone)?.label ?? '미지정'}
-                onPress={() => router.push(`/product/${product.id}`)}
+            <Chip label="전체" active={zoneFilter === null} onPress={() => setZoneFilter(null)} />
+            {shelfZones.map((zone) => (
+              <Chip
+                key={zone.id}
+                label={zone.label}
+                active={zoneFilter === zone.id}
+                onPress={() => setZoneFilter(zone.id === zoneFilter ? null : zone.id)}
               />
             ))}
+          </ScrollView>
+
+          <View style={styles.toolRow}>
+            <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>
+              {results.length}개
+            </Text>
+            <View style={{ flex: 1 }} />
+            <Pressable
+              onPress={() => setDiscountOnly((v) => !v)}
+              style={styles.toolButton}
+              accessibilityLabel={discountOnly ? '할인 상품만 보기 해제' : '할인 상품만 보기'}
+            >
+              <Icon
+                name="tag"
+                size={theme.fontBody}
+                color={discountOnly ? colors.discount : colors.textMuted}
+                filled={discountOnly}
+              />
+              <Text
+                style={{
+                  fontSize: theme.fontBody - 3,
+                  color: discountOnly ? colors.discount : colors.textMuted,
+                  fontWeight: '700',
+                }}
+              >
+                할인만
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setSort(SORT_ORDER[(SORT_ORDER.indexOf(sort) + 1) % SORT_ORDER.length])}
+              style={styles.toolButton}
+              accessibilityLabel={`정렬 ${SORT_LABELS[sort]}, 눌러서 변경`}
+            >
+              <Icon name="filter" size={theme.fontBody} color={colors.textMuted} />
+              <Text style={{ fontSize: theme.fontBody - 3, color: colors.text, fontWeight: '700' }}>
+                {SORT_LABELS[sort]}
+              </Text>
+            </Pressable>
           </View>
-        )}
-      </ScrollView>
+        </View>
+
+        {/*
+          상품이 50개를 넘어가면 ScrollView + map 은 전부를 한 번에 렌더해서
+          탭 전환 중 JS 스레드가 막히고 애니메이션이 끊긴다. FlatList 로 가상화한다.
+          numColumns 는 런타임에 못 바꾸므로 노약자 모드 전환 시 key 로 다시 마운트한다.
+        */}
+        <FlatList
+          key={`cols-${theme.gridColumns}`}
+          data={isRestoring ? [] : results}
+          keyExtractor={(item) => item.id}
+          numColumns={theme.gridColumns}
+          columnWrapperStyle={theme.gridColumns > 1 ? { gap: theme.spacing } : undefined}
+          contentContainerStyle={{
+            paddingHorizontal: GUTTER,
+            paddingBottom: bottomPad,
+            paddingTop: 4,
+            gap: theme.spacing,
+          }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={5}
+          removeClippedSubviews
+          renderItem={({ item }) => (
+            <ProductCard
+              product={item}
+              price={salePrice(item)}
+              width={cardW}
+              onPress={() => router.push(`/product/${item.id}`)}
+            />
+          )}
+          ListEmptyComponent={
+            isRestoring ? (
+              <ProductGridSkeleton width={cardW} count={6} />
+            ) : (
+              <EmptyState
+                title="찾는 상품이 없어요"
+                description={'검색어나 카테고리를 바꿔보세요.\n매장에 없는 상품일 수도 있어요.'}
+              />
+            )
+          }
+        />
+      </TabTransition>
+
+      <BottomTabBar />
     </SafeAreaView>
-  );
-}
-
-/** 검색 결과 한 줄 — 아이콘·이름·구역·가격(할인 시 정가 취소선)·품절 배지. */
-function ProductRow({
-  product,
-  zoneLabel,
-  onPress,
-}: {
-  product: Product;
-  zoneLabel: string;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-  const { colors } = theme;
-  const soldOut = product.stock === 0;
-  const price = salePrice(product);
-
-  return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${product.name} 상세 보기`}>
-      <Card style={[styles.row, { opacity: soldOut ? 0.6 : 1 }]}>
-        <View style={[styles.thumb, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-          <Text style={{ fontSize: 28 }}>{product.icon}</Text>
-        </View>
-        <View style={{ flex: 1, gap: 3 }}>
-          <View style={styles.nameRow}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }} numberOfLines={1}>
-              {product.name}
-            </Text>
-            {soldOut && (
-              <View style={[styles.tag, { backgroundColor: colors.border, borderRadius: 6 }]}>
-                <Text style={{ fontSize: theme.fontBody - 5, color: colors.textMuted, fontWeight: '800' }}>품절</Text>
-              </View>
-            )}
-          </View>
-          <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }} numberOfLines={1}>
-            {product.brand ? `${product.brand} · ` : ''}
-            {zoneLabel} 구역
-          </Text>
-          <View style={styles.priceRow}>
-            {product.discountPercent ? (
-              <>
-                <View style={[styles.tag, { backgroundColor: colors.warningSurface, borderRadius: 6 }]}>
-                  <Text style={{ fontSize: theme.fontBody - 5, color: colors.warningText, fontWeight: '800' }}>
-                    {product.discountPercent}%
-                  </Text>
-                </View>
-                <Text
-                  style={{ fontSize: theme.fontBody - 4, color: colors.textMuted, textDecorationLine: 'line-through' }}
-                >
-                  ₩{product.unitPrice.toLocaleString('ko-KR')}
-                </Text>
-              </>
-            ) : null}
-            <Text style={{ fontSize: theme.fontBody + 1, color: colors.text, fontWeight: '800' }}>
-              ₩{price.toLocaleString('ko-KR')}
-            </Text>
-          </View>
-        </View>
-        <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
-      </Card>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14 },
-  chip: { paddingHorizontal: 14, justifyContent: 'center', borderWidth: 1.5 },
-  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  toolButton: { borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  thumb: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' },
-  tag: { paddingHorizontal: 6, paddingVertical: 2 },
-  empty: { paddingVertical: 48, alignItems: 'center', gap: 10 },
+  header: { gap: 10, paddingBottom: 10 },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  toolButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
 });

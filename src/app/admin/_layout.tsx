@@ -1,5 +1,6 @@
 import { Redirect, Stack } from 'expo-router';
 
+import { BrandLoader } from '@/components/BrandLoader';
 import { useAuth } from '@/context/AuthContext';
 
 /**
@@ -10,18 +11,18 @@ import { useAuth } from '@/context/AuthContext';
 export default function AdminLayout() {
   const { isAuthenticated, isAdmin, isRestoring } = useAuth();
 
-  if (isRestoring) return null;
+  if (isRestoring) return <BrandLoader message="권한을 확인하는 중이에요" />;
   if (!isAuthenticated) return <Redirect href="/login" />;
   if (!isAdmin) return <Redirect href="/home" />;
 
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ title: '관리자 페이지' }} />
-      <Stack.Screen name="products" options={{ title: '상품 관리' }} />
-      <Stack.Screen name="product-form" options={{ title: '상품 등록' }} />
-      <Stack.Screen name="orders" options={{ title: '주문 관리' }} />
-      <Stack.Screen name="order/[orderId]" options={{ title: '주문 상세' }} />
-      <Stack.Screen name="map" options={{ title: '매장 지도 편집' }} />
+    <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', animationDuration: 220 }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="products" />
+      <Stack.Screen name="product-form" />
+      <Stack.Screen name="orders" />
+      <Stack.Screen name="order/[orderId]" />
+      <Stack.Screen name="map" />
     </Stack>
   );
 }

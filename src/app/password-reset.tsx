@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon } from '@/components/Icon';
+import { AppBar } from '@/components/AppBar';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useTheme } from '@/context/ModeContext';
@@ -31,7 +33,7 @@ const RESEND_COOLDOWN_SEC = 60;
 /**
  * 인증번호 입력 허용 횟수.
  *
- * ⚠️ 이건 보안 장치가 아니라 UX 장치다. 서버는 인증번호가 틀려도 코드를 폐기하지 않고
+ * 주의: 이건 보안 장치가 아니라 UX 장치다. 서버는 인증번호가 틀려도 코드를 폐기하지 않고
  * 시도 횟수도 세지 않으므로, 앱을 거치지 않는 요청은 이 제한을 그냥 통과한다.
  * 실제 무차별 대입 차단은 서버에 시도 횟수 카운터가 들어가야 한다.
  */
@@ -184,7 +186,7 @@ export default function PasswordResetScreen() {
     return (
       <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]}>
         <View style={[styles.successBadge, { backgroundColor: colors.successSurface }]}>
-          <Text style={{ fontSize: 44, color: colors.success, fontWeight: '800' }}>✓</Text>
+          <Icon name="check" size={44} color={colors.success} strokeWidth={3.2} />
         </View>
         <Text style={{ fontSize: theme.fontTitle, color: colors.text, fontWeight: '800', marginTop: 20 }}>
           비밀번호를 바꿨어요
@@ -197,7 +199,8 @@ export default function PasswordResetScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={[styles.scroll, { padding: 24, gap: theme.spacing }]}
@@ -404,9 +407,11 @@ function StepIndicator({ step }: { step: Step }) {
                 { borderColor: tone, backgroundColor: done || active ? tone : 'transparent' },
               ]}
             >
-              <Text style={{ fontSize: theme.fontBody - 5, color: colors.card, fontWeight: '800' }}>
-                {done ? '✓' : `${i + 1}`}
-              </Text>
+              {done ? (
+                <Icon name="check" size={theme.fontBody - 4} color={colors.card} strokeWidth={3.4} />
+              ) : (
+                <Text style={{ fontSize: theme.fontBody - 5, color: colors.card, fontWeight: '800' }}>{i + 1}</Text>
+              )}
             </View>
             <Text style={{ fontSize: theme.fontBody - 4, color: tone, fontWeight: active ? '800' : '600' }}>
               {labels[s]}
@@ -423,9 +428,10 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
   const theme = useTheme();
   const { colors } = theme;
   return (
-    <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>
-      {met ? '✓' : '○'} {label}
-    </Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <Icon name={met ? 'check' : 'minus'} size={theme.fontBody - 3} color={met ? colors.success : colors.textMuted} strokeWidth={3} />
+      <Text style={{ fontSize: theme.fontBody - 3, color: met ? colors.success : colors.textMuted }}>{label}</Text>
+    </View>
   );
 }
 

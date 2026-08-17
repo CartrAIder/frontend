@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
+import { ProductImage } from '@/components/ProductImage';
 import { useTheme } from '@/context/ModeContext';
 import { adminGetOrder, type AdminOrderDetail } from '@/lib/api';
 import { formatDateTimeFull, formatWon } from '@/lib/format';
@@ -52,18 +54,24 @@ export default function AdminOrderDetailScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]} edges={['bottom']}>
-        <ActivityIndicator color={colors.primary} />
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+        <AppBar title="주문 상세" />
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
       </SafeAreaView>
     );
   }
 
   if (error || !order) {
     return (
-      <SafeAreaView style={[styles.container, styles.center, { backgroundColor: colors.background }]} edges={['bottom']}>
-        <Text style={{ fontSize: theme.fontBody, color: colors.danger, textAlign: 'center' }}>
-          {error ?? '주문을 찾을 수 없어요.'}
-        </Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+        <AppBar title="주문 상세" />
+        <View style={styles.center}>
+          <Text style={{ fontSize: theme.fontBody, color: colors.danger, textAlign: 'center' }}>
+            {error ?? '주문을 찾을 수 없어요.'}
+          </Text>
+        </View>
       </SafeAreaView>
     );
   }
@@ -72,7 +80,8 @@ export default function AdminOrderDetailScreen() {
   const itemsTotal = order.items.reduce((sum, item) => sum + item.lineAmount, 0);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <AppBar title="주문 상세" subtitle={order.orderId} />
       <ScrollView
         contentContainerStyle={{ padding: 20, gap: theme.spacing }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
@@ -114,6 +123,12 @@ export default function AdminOrderDetailScreen() {
               <View key={item.id}>
                 {index > 0 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
                 <View style={[styles.itemRow, { padding: theme.spacing + 2 }]}>
+                  <ProductImage
+                    id={String(item.productId)}
+                    name={item.productName}
+                    size={52}
+                    radius={theme.imageRadius}
+                  />
                   <View style={{ flex: 1, gap: 3 }}>
                     <Text
                       style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}
@@ -134,7 +149,7 @@ export default function AdminOrderDetailScreen() {
           </Card>
           {itemsTotal !== order.totalAmount && (
             <Text style={{ fontSize: theme.fontBody - 4, color: colors.warningText, marginLeft: 4 }}>
-              ⚠️ 상품 합계({formatWon(itemsTotal)})와 주문 총액이 달라요.
+              상품 합계({formatWon(itemsTotal)})와 주문 총액이 달라요.
             </Text>
           )}
         </View>
@@ -181,7 +196,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingTop: 12 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
