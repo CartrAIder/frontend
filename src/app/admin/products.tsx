@@ -24,6 +24,18 @@ export default function AdminProductsScreen() {
     );
   }, [products, query]);
 
+  /**
+   * 재고 변경. 0을 넘나들면 서버 판매상태까지 바뀌므로 실패를 반드시 알린다
+   * (조용히 넘기면 화면은 품절인데 서버는 판매중이라 주문이 계속 들어온다).
+   */
+  async function handleStock(productId: string, nextStock: number) {
+    try {
+      await updateProduct(productId, { stock: nextStock });
+    } catch (e) {
+      Alert.alert('재고 변경 실패', e instanceof Error ? e.message : '잠시 후 다시 시도해주세요.');
+    }
+  }
+
   function confirmDelete(productId: string, name: string) {
     Alert.alert('상품 삭제', `"${name}"을(를) 목록에서 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
@@ -87,7 +99,7 @@ export default function AdminProductsScreen() {
                 </Text>
                 <StepButton
                   label="−"
-                  onPress={() => updateProduct(product.id, { stock: Math.max(0, product.stock - 1) })}
+                  onPress={() => void handleStock(product.id, Math.max(0, product.stock - 1))}
                   disabled={product.stock === 0}
                 />
                 <Text
@@ -101,7 +113,7 @@ export default function AdminProductsScreen() {
                 >
                   {soldOut ? '품절' : product.stock}
                 </Text>
-                <StepButton label="+" onPress={() => updateProduct(product.id, { stock: product.stock + 1 })} />
+                <StepButton label="+" onPress={() => void handleStock(product.id, product.stock + 1)} />
               </View>
 
               <View style={styles.actionRow}>

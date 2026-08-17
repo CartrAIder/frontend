@@ -8,6 +8,7 @@
 import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Alert } from 'react-native';
+import { changePassword as changePasswordApi } from '@/lib/api';
 
 import {
   isTokenExpired,
@@ -17,6 +18,7 @@ import {
   setOnSessionExpired,
   signupMember,
   toSession,
+  withdrawMember,
   type SignupInput,
 } from '@/lib/api';
 import { clearMemberSession, loadMemberSession, saveMemberSession, type MemberSession } from '@/lib/authStorage';
@@ -33,9 +35,14 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   signup: (input: SignupInput) => Promise<void>;
   logout: () => void;
+  /** 비밀번호 변경 — 서버가 발급한 새 토큰쌍으로 세션을 교체한다. */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /** 회원 탈퇴 — 성공하면 세션이 즉시 정리된다(로그아웃과 같은 캐스케이드). */
+  withdraw: (currentPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<MemberSession | null>(null);
@@ -111,6 +118,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const result = await changePasswordApi(currentPassword, newPassword);
+      // 서버가 기존 Refresh Token을 폐기했으므로 새 토큰쌍을 즉시 반영해야 한다.
+      // (빠뜨리면 다음 요청이 401 → 폐기된 토큰으로 재발급 시도 → 강제 로그아웃)
+      await applySession(toSession(result));
+    },
+    [applySession],
+  );
+
+  const withdraw = useCallback(async (currentPassword: string) => {
+    // 실패(비밀번호 불일치·진행 중 주문)면 그대로 throw해 화면이 사유를 보여주게 둔다.
+    await withdrawMember(currentPassword);
+    // 서버가 이미 Refresh Token을 지웠으므로 logoutMember()는 부르지 않는다.
+    // 남은 토큰으로 다른 요청이 나가면 401 → "세션 만료" 알림이 뜨므로 즉시 비운다.
+    setSession(null);
+    await clearMemberSession().catch(() => {});
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       member: session
@@ -123,8 +149,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       signup,
       logout,
+      changePassword,
+      withdraw,
     }),
-    [session, isRestoring, login, signup, logout],
+    [session, isRestoring, login, signup, logout, changePassword, withdraw],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

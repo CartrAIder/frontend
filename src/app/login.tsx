@@ -117,6 +117,14 @@ export default function LoginScreen() {
 
             <PrimaryButton title="로그인" onPress={handleLogin} loading={submitting} style={{ marginTop: 4 }} />
 
+            <Link href="/password-reset" asChild>
+              <Pressable hitSlop={8} style={styles.forgotRow}>
+                <Text style={{ fontSize: theme.fontBody - 1, color: colors.textMuted, fontWeight: '600' }}>
+                  비밀번호를 잊으셨나요?
+                </Text>
+              </Pressable>
+            </Link>
+
             <View style={styles.signupRow}>
               <Text style={{ fontSize: theme.fontBody - 1, color: colors.textMuted }}>
                 아직 계정이 없으신가요?
@@ -148,6 +156,7 @@ const styles = StyleSheet.create({
   logoMark: { width: 52, height: 52 },
   appName: { fontWeight: '800', letterSpacing: 0.3 },
   errorBox: { borderWidth: 1, borderRadius: 10, padding: 12 },
+  forgotRow: { alignSelf: 'center', paddingVertical: 8 },
   signupRow: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 6 },
   spacer: { flex: 1, minHeight: 16 },
 });

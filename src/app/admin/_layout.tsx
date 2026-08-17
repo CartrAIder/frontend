@@ -19,6 +19,8 @@ export default function AdminLayout() {
       <Stack.Screen name="index" options={{ title: '관리자 페이지' }} />
       <Stack.Screen name="products" options={{ title: '상품 관리' }} />
       <Stack.Screen name="product-form" options={{ title: '상품 등록' }} />
+      <Stack.Screen name="orders" options={{ title: '주문 관리' }} />
+      <Stack.Screen name="order/[orderId]" options={{ title: '주문 상세' }} />
       <Stack.Screen name="map" options={{ title: '매장 지도 편집' }} />
     </Stack>
   );

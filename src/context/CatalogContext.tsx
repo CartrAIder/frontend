@@ -7,7 +7,9 @@
  *
  * - 로그인되면 백엔드 상품을 새로고침한다(상품 조회는 인증 필요).
  * - 오버레이/구역/마지막 상품 캐시는 secure-store에 영속화되어 오프라인·재시작에도 즉시 표시된다.
- * - 관리자 CRUD는 현재 로컬 오버레이만 갱신한다. (백엔드 쓰기 연동은 #13에서)
+ * - 관리자 쓰기: 등록·가격·판매상태는 백엔드에 반영된다. 재고·구역·아이콘·할인은 백엔드
+ *   Product 스키마에 없어 로컬 오버레이에만 남고, 재고는 0 여부만 판매상태로 서버에 전달된다.
+ *   이름·카테고리는 백엔드에 수정 API가 없어 로컬 표시만 바뀐다.
  */
 import {
   createContext,
@@ -48,8 +50,12 @@ interface CatalogContextValue {
   createProduct: (draft: ProductDraft, barcode: string) => Promise<Product>;
   /** 상품 수정 — 백엔드에 가격·판매상태 반영 + 로컬 표현 갱신(백엔드는 이름/카테고리 수정 불가). */
   editProduct: (productId: string, draft: ProductDraft) => Promise<void>;
-  /** 로컬 표현 필드만 즉시 갱신(재고 ± 등). 백엔드 미반영. */
-  updateProduct: (productId: string, patch: Partial<ProductDraft>) => void;
+  /**
+   * 로컬 표현 필드 갱신(재고 ± 등).
+   * 재고 변경으로 판매상태(ON_SALE/SOLD_OUT)가 바뀌면 백엔드에도 반영하며, 이때는
+   * 서버 반영이 성공한 뒤에 화면이 바뀐다. 실패 시 throw하므로 호출부가 안내해야 한다.
+   */
+  updateProduct: (productId: string, patch: Partial<ProductDraft>) => Promise<void>;
   /** 삭제 — 백엔드 삭제 API가 없어 로컬 숨김 + (백엔드 상품이면) 판매상태 SOLD_OUT 처리. */
   removeProduct: (productId: string) => void;
   updateZone: (zoneId: string, patch: Partial<Omit<StoreZone, 'id'>>) => void;
@@ -205,12 +211,29 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [products, refresh],
   );
 
-  const updateProduct = useCallback((productId: string, patch: Partial<ProductDraft>) => {
-    setOverlay((prev) => ({
-      ...prev,
-      [productId]: { ...prev[productId], ...draftToOverlay(patch) },
-    }));
-  }, []);
+  const updateProduct = useCallback(
+    async (productId: string, patch: Partial<ProductDraft>) => {
+      const target = products.find((p) => p.id === productId);
+      const nextStatus = patch.stock === undefined ? null : statusFromStock(patch.stock);
+      // 재고가 0을 넘나들 때만 서버를 부른다(5→4처럼 상태가 그대로면 네트워크 요청 없음).
+      const backendId = target?.backendId;
+      const needsSync = nextStatus !== null && backendId != null && nextStatus !== target?.status;
+
+      // 판매상태가 바뀌는 경우엔 서버 반영 후에 화면을 바꾼다. 실패했는데 로컬만 품절로
+      // 보이면 관리자는 주문을 막았다고 착각하지만 서버는 ON_SALE이라 주문이 계속 들어온다.
+      if (needsSync && backendId != null && nextStatus != null) {
+        await adminUpdateProduct(backendId, { status: nextStatus });
+      }
+
+      setOverlay((prev) => ({
+        ...prev,
+        [productId]: { ...prev[productId], ...draftToOverlay(patch) },
+      }));
+
+      if (needsSync) await refresh();
+    },
+    [products, refresh],
+  );
 
   const removeProduct = useCallback(
     (productId: string) => {

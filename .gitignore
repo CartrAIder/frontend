@@ -31,7 +31,11 @@ yarn-error.*
 *.pem
 
 # local env files
+# .env 에는 기기별 LAN IP(EXPO_PUBLIC_API_BASE_URL)가 들어가므로 커밋하지 않는다.
+# 새로 받은 사람은 .env.example 을 복사해 채운다.
+.env
 .env*.local
+!.env.example
 
 # typescript
 *.tsbuildinfo
