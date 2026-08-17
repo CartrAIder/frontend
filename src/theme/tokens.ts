@@ -43,6 +43,10 @@ export interface ModeColors {
   warningText: string;
   /** 삭제·경고 액션 강조색 */
   danger: string;
+  /** 할인율 강조색 — 커머스 관례상 가격 옆 빨강 계열 */
+  discount: string;
+  /** 리뷰 별점 색 */
+  star: string;
 }
 
 export interface ModeTokens {
@@ -70,6 +74,12 @@ export interface ModeTokens {
   shadowCard: ShadowToken;
   /** 음성 안내 제공 여부 (결제 완료·길 안내) */
   voiceGuide: boolean;
+  /** 바텀 탭바 높이(안전영역 제외) */
+  tabBarHeight: number;
+  /** 상품 그리드 열 수 — senior는 글자가 커서 1열로 떨어뜨린다 */
+  gridColumns: number;
+  /** 상품 이미지 모서리 radius */
+  imageRadius: number;
   /** 모드별 색상 팔레트 (senior는 WCAG AA 4.5:1 이상 고대비) */
   colors: ModeColors;
 }
@@ -94,6 +104,9 @@ export const tokens: Record<Mode, ModeTokens> = {
       elevation: 3,
     },
     voiceGuide: false,
+    tabBarHeight: 58,
+    gridColumns: 2,
+    imageRadius: 12,
     colors: {
       background: '#F4F6FA',
       card: '#FFFFFF',
@@ -110,6 +123,8 @@ export const tokens: Record<Mode, ModeTokens> = {
       warningSurface: '#FEF3C7',
       warningText: '#92400E',
       danger: '#DC2626',
+      discount: '#FF3B30',
+      star: '#FBBF24',
     },
   },
   senior: {
@@ -131,6 +146,9 @@ export const tokens: Record<Mode, ModeTokens> = {
       elevation: 2,
     },
     voiceGuide: true,
+    tabBarHeight: 72,
+    gridColumns: 1, // 글자·터치영역이 커서 2열이면 상품명이 잘린다
+    imageRadius: 14,
     colors: {
       background: '#FFFFFF',
       card: '#FFFFFF',
@@ -147,6 +165,8 @@ export const tokens: Record<Mode, ModeTokens> = {
       warningSurface: '#FDE68A',
       warningText: '#78350F',
       danger: '#B91C1C',
+      discount: '#C81E1E',
+      star: '#B45309',
     },
   },
 };
