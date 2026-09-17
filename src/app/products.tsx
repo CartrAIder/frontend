@@ -1,8 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Dimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { ProductGridSkeleton } from '@/components/Skeleton';
 import { TabTransition } from '@/components/TabTransition';
 import { AppBar } from '@/components/AppBar';
@@ -11,8 +13,8 @@ import { Icon } from '@/components/Icon';
 import { Chip, EmptyState, ProductCard, SearchBar } from '@/components/commerce';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
+import { useProductGrid } from '@/lib/layout';
 
-const SCREEN_W = Dimensions.get('window').width;
 const GUTTER = 20;
 
 type SortKey = 'recommended' | 'priceAsc' | 'priceDesc' | 'name';
@@ -35,7 +37,8 @@ export default function ProductsScreen() {
   const { colors } = theme;
   const router = useRouter();
   const params = useLocalSearchParams<{ zone?: string }>();
-  const { products, shelfZones, findZone, isRestoring } = useCatalog();
+  const { products, shelfZones, findZone, isRestoring, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
   const bottomPad = useTabBarPadding();
 
   const [query, setQuery] = useState('');
@@ -79,10 +82,7 @@ export default function ProductsScreen() {
     return sorted;
   }, [products, query, zoneFilter, discountOnly, sort, findZone]);
 
-  const cardW =
-    theme.gridColumns === 1
-      ? SCREEN_W - GUTTER * 2
-      : Math.floor((SCREEN_W - GUTTER * 2 - theme.spacing) / 2);
+  const { cardWidth: cardW, columns } = useProductGrid(theme.gridColumns, theme.spacing, GUTTER);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -151,14 +151,14 @@ export default function ProductsScreen() {
         {/*
           상품이 50개를 넘어가면 ScrollView + map 은 전부를 한 번에 렌더해서
           탭 전환 중 JS 스레드가 막히고 애니메이션이 끊긴다. FlatList 로 가상화한다.
-          numColumns 는 런타임에 못 바꾸므로 노약자 모드 전환 시 key 로 다시 마운트한다.
+          numColumns 는 런타임에 못 바꾸므로 모드 전환·창 크기 변화로 열 수가 바뀌면 key 로 다시 마운트한다.
         */}
         <FlatList
-          key={`cols-${theme.gridColumns}`}
+          key={`cols-${columns}`}
           data={isRestoring ? [] : results}
           keyExtractor={(item) => item.id}
-          numColumns={theme.gridColumns}
-          columnWrapperStyle={theme.gridColumns > 1 ? { gap: theme.spacing } : undefined}
+          numColumns={columns}
+          columnWrapperStyle={columns > 1 ? { gap: theme.spacing } : undefined}
           contentContainerStyle={{
             paddingHorizontal: GUTTER,
             paddingBottom: bottomPad,
@@ -167,6 +167,8 @@ export default function ProductsScreen() {
           }}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
+          ListHeaderComponent={<BrandRefreshLoader visible={refreshing} />}
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={5}

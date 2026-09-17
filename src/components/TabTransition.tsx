@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Dimensions, Easing, StyleSheet } from 'react-native';
+import { Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
 
 /**
  * 탭 화면 전환 — 탭 순서에 따라 좌/우에서 밀려 들어온다.
@@ -29,16 +29,17 @@ function consumeDirection(): TabDirection {
   return d;
 }
 
-const SCREEN_W = Dimensions.get('window').width;
-
 /**
  * 탭 화면 본문을 감싼다. 바텀 탭바는 제자리에 있어야 하므로 이 안에 넣지 않는다.
  */
 export function TabTransition({ children }: { children: React.ReactNode }) {
   // 마운트 시점에 한 번만 방향을 정한다(리렌더로 다시 미끄러지지 않게).
   const direction = useRef(consumeDirection()).current;
+  // 슬라이드 거리도 실제 창 폭에서 잡는다(모듈 상수면 웹에서 0이 잡혀 전환이 안 보인다).
+  const { width } = useWindowDimensions();
+  const slideFrom = width > 0 ? width : 375;
   const translateX = useRef(
-    new Animated.Value(direction === 'none' ? 0 : direction === 'right' ? SCREEN_W : -SCREEN_W),
+    new Animated.Value(direction === 'none' ? 0 : direction === 'right' ? slideFrom : -slideFrom),
   ).current;
 
   useEffect(() => {

@@ -1,21 +1,22 @@
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { ProductCardSkeleton, ProductGridSkeleton } from '@/components/Skeleton';
 import { TabTransition } from '@/components/TabTransition';
 import { BottomTabBar, useTabBarPadding } from '@/components/BottomTabBar';
 import { Icon } from '@/components/Icon';
-import { ProductImage } from '@/components/ProductImage';
 import { HorizontalRail, ProductCard, SearchBar, SectionHeader } from '@/components/commerce';
 import { useAuth } from '@/context/AuthContext';
 import { useCartSession } from '@/context/CartSessionContext';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
 import { formatWon } from '@/lib/format';
+import { useProductGrid } from '@/lib/layout';
 
-const SCREEN_W = Dimensions.get('window').width;
 const GUTTER = 20;
 
 /**
@@ -28,7 +29,8 @@ export default function HomeScreen() {
   const router = useRouter();
   const { member, isAdmin } = useAuth();
   const { isConnected, cartId } = useCartSession();
-  const { products, shelfZones, isRestoring } = useCatalog();
+  const { products, shelfZones, isRestoring, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
   const bottomPad = useTabBarPadding();
 
   const onSale = useMemo(() => products.filter((p) => p.discountPercent && p.stock > 0), [products]);
@@ -37,11 +39,12 @@ export default function HomeScreen() {
     [products],
   );
 
-  // 가로 레일 카드 폭 — 화면에 2.4장쯤 보이게
-  const railCardW = Math.round((SCREEN_W - GUTTER * 2) / 2.4);
-  const gridCardW = theme.gridColumns === 1
-    ? SCREEN_W - GUTTER * 2
-    : Math.floor((SCREEN_W - GUTTER * 2 - theme.spacing) / 2);
+  // 카드 폭은 실제 창 폭에서 매 렌더 계산한다(모듈 상수로 굳히면 웹에서 찌그러진다).
+  const { cardWidth: gridCardW, railCardWidth: railCardW } = useProductGrid(
+    theme.gridColumns,
+    theme.spacing,
+    GUTTER,
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -63,7 +66,12 @@ export default function HomeScreen() {
         <ScrollView
           contentContainerStyle={{ paddingBottom: bottomPad, gap: theme.spacing + 6 }}
           showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
         >
+          <View style={{ paddingHorizontal: GUTTER }}>
+            <BrandRefreshLoader visible={refreshing} />
+          </View>
+
           {/* 검색 */}
           <View style={{ paddingHorizontal: GUTTER, paddingTop: 4 }}>
             <SearchBar onPress={() => router.replace('/products')} />
@@ -114,8 +122,10 @@ export default function HomeScreen() {
                   style={styles.categoryItem}
                   accessibilityLabel={`${zone.label} 카테고리`}
                 >
+                  {/* 매대 아이콘은 storeMap에 정의된 이모지를 쓴다(관리자 지도 편집에서 바꿀 수 있다).
+                      상품 벡터 아트로 그리면 식품이 아닌 매대가 전부 같은 상자 그림이 된다. */}
                   <View style={[styles.categoryCircle, { backgroundColor: zone.color }]}>
-                    <ProductImage id={zone.id} name={zone.label} zone={zone.id} size={54} radius={27} />
+                    <Text style={{ fontSize: 26 }}>{zone.icon}</Text>
                   </View>
                   <Text
                     style={{ fontSize: theme.fontBody - 3, color: colors.text, fontWeight: '600' }}
@@ -253,7 +263,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   categoryItem: { alignItems: 'center', gap: 6, width: 68 },
-  categoryCircle: { width: 54, height: 54, borderRadius: 27, overflow: 'hidden' },
+  categoryCircle: { width: 54, height: 54, borderRadius: 27, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   adminBar: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   mapCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
