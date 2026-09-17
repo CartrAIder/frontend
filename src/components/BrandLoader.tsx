@@ -80,6 +80,37 @@ export function BrandLoader({ message }: { message?: string }) {
 }
 
 /**
+ * 당겨서 새로고침용 컴팩트 로더 — 로고 뱃지 + 같은 진행바를 한 줄로 눕힌 형태.
+ *
+ * 전체화면/오버레이 로더는 화면을 가리고 터치를 막아서, 1초 남짓이면 끝나는 새로고침에는
+ * 과하다. 그래서 같은 브랜드 요소(로고·진행바)를 그대로 쓰되 목록 위에 얇게 얹는다.
+ * `visible` 이 false 면 아무것도 그리지 않아 레이아웃도 차지하지 않는다.
+ */
+export function BrandRefreshLoader({ visible, message }: { visible: boolean; message?: string }) {
+  const theme = useTheme();
+  const { colors } = theme;
+  if (!visible) return null;
+
+  return (
+    <View style={[styles.refreshRow, { backgroundColor: colors.card, borderRadius: theme.radiusSm }]}>
+      <View style={[styles.refreshBadge, { backgroundColor: colors.primary }]}>
+        <Image
+          source={require('../../assets/logo/mark-white-512.png')}
+          style={styles.refreshMark}
+          resizeMode="contain"
+        />
+      </View>
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted, fontWeight: '600' }}>
+          {message ?? '새로고침 중…'}
+        </Text>
+        <ProgressTrack tint={colors.primary} track={colors.border} />
+      </View>
+    </View>
+  );
+}
+
+/**
  * 화면 위에 덮는 로더 — 이미 내용이 있는 화면에서 작업이 도는 동안.
  * `visible` 이 false 면 아무것도 그리지 않는다.
  */
@@ -105,5 +136,8 @@ const styles = StyleSheet.create({
   logoBadge: { width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   logoMark: { width: 52, height: 52 },
   track: { width: TRACK_W, height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
+  refreshRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
+  refreshBadge: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  refreshMark: { width: 20, height: 20 },
   fill: { width: FILL_W, height: 4, borderRadius: 2 },
 });
