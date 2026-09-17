@@ -215,6 +215,8 @@ export interface CardProduct {
   unitPrice: number;
   discountPercent?: number;
   stock: number;
+  /** 서버가 준 상품 사진 주소. 없으면 ProductImage가 번들 사진/벡터로 그린다. */
+  imageUrl?: string | null;
 }
 
 /** 세로형 상품 카드 — 그리드/가로 스크롤 공용. width 를 주면 그 폭에 맞춘다. */
@@ -249,6 +251,7 @@ function ProductCardBase({
             id={product.id}
             name={product.name}
             zone={product.zone}
+            uri={product.imageUrl}
             size={width}
             radius={theme.imageRadius}
             dimmed={soldOut}
@@ -314,6 +317,7 @@ export function ProductRow({
         id={product.id}
         name={product.name}
         zone={product.zone}
+        uri={product.imageUrl}
         size={imageSize}
         radius={theme.imageRadius}
         dimmed={soldOut}

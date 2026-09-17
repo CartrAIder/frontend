@@ -1,11 +1,13 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CardListSkeleton } from '@/components/Skeleton';
 import { Icon } from '@/components/Icon';
 import { AppBar } from '@/components/AppBar';
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { useTheme } from '@/context/ModeContext';
@@ -37,7 +39,6 @@ export default function AdminOrdersScreen() {
 
   const [data, setData] = useState<AdminOrderPage | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -60,11 +61,7 @@ export default function AdminOrdersScreen() {
     };
   }, [load]);
 
-  async function handleRefresh() {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }
+  const { refreshing, refreshControl } = useBrandRefresh(load);
 
   /** 검색어·필터가 바뀌면 첫 페이지로 되돌린다(빈 페이지를 보게 되는 것 방지). */
   function applyKeyword() {
@@ -86,8 +83,10 @@ export default function AdminOrdersScreen() {
       <ScrollView
         contentContainerStyle={{ padding: 20, gap: theme.spacing }}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
+        refreshControl={refreshControl}
       >
+        <BrandRefreshLoader visible={refreshing} />
+
         {/* 검색 */}
         <View
           style={[

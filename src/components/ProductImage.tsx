@@ -1,18 +1,24 @@
-import { memo } from 'react';
-import { Image, View } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
+import { memo, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Image, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
 
 import { artFor, type ArtSpec } from '@/lib/productArt';
 import { photoFor } from '@/lib/productPhotos';
 
 /**
- * 상품 이미지 — 번들된 사진이 있으면 사진을, 없으면 이름 기반 벡터 그림을 그린다.
+ * 상품 이미지 — 우선순위대로 그린다.
+ *  1. 서버 imageUrl (관리자가 올린 실제 상품 사진, MinIO) — expo-image로 그린다
+ *  2. 번들된 사진 `assets/products/<상품키>.jpg` (`npm run photos` 로 매핑 갱신)
+ *  3. 이름 기반 벡터 그림 (네트워크·에셋 없이도 항상 뜨는 최후 수단)
  *
- * 사진은 `assets/products/<상품키>.jpg` 에 넣고 `npm run photos` 로 매핑을 갱신한다.
- * 둘 다 번들에 들어가므로 네트워크가 없어도 항상 뜬다.
- *
- * 나중에 백엔드가 imageUrl 을 주면 여기에 원격 소스 분기를 한 겹 더 얹으면 되고,
- * 화면 코드는 바꿀 필요가 없다.
+ * 원격 이미지에 expo-image를 쓰는 이유(RN 기본 Image 대비):
+ *  - 네이티브 메모리+디스크 캐시(Glide/SDWebImage). RN Image는 디스크 캐시가 사실상 없어
+ *    화면을 옮길 때마다 다시 받는다. 상품 그리드처럼 같은 이미지를 반복해 보는 화면에서 차이가 크다.
+ *  - WebP/AVIF 디코딩과 컨테이너 크기에 맞춘 다운스케일(allowDownscaling)을 네이티브가 처리한다.
+ *  - transition으로 캐시 히트/미스에 따른 깜빡임을 없앤다.
+ * 로딩 중에는 스켈레톤(은은한 배경 + 스피너)을 깔아 레이아웃이 튀지 않게 한다.
+ * 로딩 실패(서버 다운·오프라인·잘못된 URL) 시에는 아래 단계로 조용히 내려간다.
  */
 function ProductImageBase({
   id,
@@ -21,6 +27,8 @@ function ProductImageBase({
   size,
   radius = 12,
   dimmed = false,
+  uri,
+  priority = 'normal',
 }: {
   id: string;
   name: string;
@@ -29,9 +37,60 @@ function ProductImageBase({
   radius?: number;
   /** 품절 등으로 흐리게 표시할 때. */
   dimmed?: boolean;
+  /** 서버가 준 상품 사진 주소(ProductResponse.imageUrl). 실패하면 번들 사진/벡터로 폴백. */
+  uri?: string | null;
+  /** 화면에서 큰 비중을 차지하는 이미지(상세 대표컷)는 'high'로 먼저 받게 한다. */
+  priority?: 'low' | 'normal' | 'high';
 }) {
   const photo = photoFor(id);
-  const spec = artFor({ id, name, zone });
+  // artFor는 문자열 해시·팔레트 계산을 한다. 그리드에 수십 장이 깔리므로 입력이 같으면 재사용한다.
+  const spec = useMemo(() => artFor({ id, name, zone }), [id, name, zone]);
+  // 원격 이미지가 깨지면 다시 시도하지 않고 폴백을 그린다.
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  // 주소가 바뀌면(상품 변경·이미지 교체) 상태를 초기화한다.
+  useEffect(() => {
+    setRemoteFailed(false);
+    setLoading(true);
+  }, [uri]);
+
+  // 컨테이너 스타일은 세 갈래가 공유한다.
+  const box = useMemo(
+    () => ({
+      width: size,
+      height: size,
+      borderRadius: radius,
+      backgroundColor: spec.bg,
+      overflow: 'hidden' as const,
+      opacity: dimmed ? 0.45 : 1,
+    }),
+    [size, radius, spec.bg, dimmed],
+  );
+
+  if (uri && !remoteFailed) {
+    return (
+      <View style={box}>
+        <ExpoImage
+          source={{ uri }}
+          style={{ width: size, height: size }}
+          contentFit="cover"
+          // 메모리+디스크 캐시 — 목록↔상세를 오갈 때 네트워크를 다시 타지 않는다.
+          cachePolicy="memory-disk"
+          // 캐시에서 즉시 뜨면 전환을 생략하고, 새로 받을 때만 부드럽게 페이드한다.
+          transition={loading ? 180 : 0}
+          priority={priority}
+          // 리스트 뷰 재활용 시 이전 상품 사진이 잠깐 보이는 것을 막는다.
+          recyclingKey={uri}
+          onLoadEnd={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setRemoteFailed(true);
+          }}
+        />
+        {loading ? <ImageSkeleton radius={radius} /> : null}
+      </View>
+    );
+  }
 
   // 사진이 있으면 사진을 쓴다. 비율이 제각각이라 cover 로 정사각에 맞춘다.
   if (photo) {
@@ -67,6 +126,31 @@ function ProductImageBase({
         <Ellipse cx="50" cy="84" rx="26" ry="5" fill="#000000" opacity={0.07} />
         <Shape spec={spec} />
       </Svg>
+    </View>
+  );
+}
+
+/**
+ * 이미지가 도착하기 전 자리를 채우는 스켈레톤.
+ * 컨테이너(정사각) 위에 겹쳐 깔리므로 레이아웃이 밀리지 않는다.
+ */
+function ImageSkeleton({ radius }: { radius: number }) {
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: radius,
+        backgroundColor: 'rgba(0,0,0,0.04)',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      pointerEvents="none"
+    >
+      <ActivityIndicator size="small" color="rgba(0,0,0,0.25)" />
     </View>
   );
 }

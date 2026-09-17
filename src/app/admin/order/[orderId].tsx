@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,6 +7,7 @@ import { AppBar } from '@/components/AppBar';
 import { Card } from '@/components/Card';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { ProductImage } from '@/components/ProductImage';
+import { useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
 import { adminGetOrder, type AdminOrderDetail } from '@/lib/api';
 import { formatDateTimeFull, formatWon } from '@/lib/format';
@@ -16,6 +17,12 @@ export default function AdminOrderDetailScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
+  // 주문 항목에는 사진이 없다(이름·수량만). 카탈로그에서 백엔드 상품 id로 찾아 붙인다.
+  const { products } = useCatalog();
+  const imageByBackendId = useMemo(
+    () => new Map(products.filter((p) => p.backendId != null).map((p) => [p.backendId, p.imageUrl])),
+    [products],
+  );
 
   const [order, setOrder] = useState<AdminOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +133,7 @@ export default function AdminOrderDetailScreen() {
                   <ProductImage
                     id={String(item.productId)}
                     name={item.productName}
+                    uri={imageByBackendId.get(item.productId)}
                     size={52}
                     radius={theme.imageRadius}
                   />
