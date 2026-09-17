@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -18,7 +18,20 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useCatalog, type ProductDraft } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
+import { fetchProductCategories, type ApiProductCategory, type ApiProductCategoryOption } from '@/lib/api';
+import { categoryForZone } from '@/lib/catalog/overlay';
 import type { Product } from '@/lib/mock/products';
+
+/** 서버 카테고리 목록을 못 받았을 때 쓰는 폴백(백엔드 ProductCategory와 같은 7종). */
+const FALLBACK_CATEGORIES: ApiProductCategoryOption[] = [
+  { code: 'DAIRY', name: '유제품' },
+  { code: 'BEVERAGE', name: '음료' },
+  { code: 'SNACK', name: '과자' },
+  { code: 'FROZEN', name: '냉동식품' },
+  { code: 'FRUIT', name: '과일' },
+  { code: 'VEGETABLE', name: '채소' },
+  { code: 'HOUSEHOLD', name: '생활용품' },
+];
 
 
 /**
@@ -55,12 +68,33 @@ function ProductForm({ editing }: { editing?: Product }) {
   // 대표 이미지는 상품명으로 자동 생성한다(ProductImage). icon 필드는 하위 호환용으로만 남긴다.
   const icon = editing?.icon ?? '';
   const [zone, setZone] = useState(editing?.zone ?? shelfZones[0]?.id ?? '');
+  // 백엔드 카테고리(ProductCategory). 등록할 때만 고를 수 있다(수정 API가 없다).
+  const [categories, setCategories] = useState<ApiProductCategoryOption[]>(FALLBACK_CATEGORIES);
+  const [category, setCategory] = useState<ApiProductCategory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // 아직 고르지 않았으면 선택한 매대 구역에서 유추한 값을 쓴다.
+  const effectiveCategory = useMemo(() => category ?? categoryForZone(zone), [category, zone]);
 
   useEffect(() => {
     navigation.setOptions({ title: isEdit ? '상품 수정' : '새 상품 등록' });
   }, [navigation, isEdit]);
+
+  // 카테고리 라벨은 서버가 준다(GET /api/products/categories). 실패하면 폴백을 그대로 쓴다.
+  useEffect(() => {
+    let active = true;
+    fetchProductCategories()
+      .then((list) => {
+        if (active && list.length > 0) setCategories(list);
+      })
+      .catch(() => {
+        // 폴백 유지
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSave() {
     if (submitting) return;
@@ -93,7 +127,7 @@ function ProductForm({ editing }: { editing?: Product }) {
       if (editing) {
         await editProduct(editing.id, draft);
       } else {
-        await createProduct(draft, trimmedBarcode);
+        await createProduct(draft, trimmedBarcode, effectiveCategory);
       }
       router.back();
     } catch (e) {
@@ -111,7 +145,14 @@ function ProductForm({ editing }: { editing?: Product }) {
           {/* 미리보기 */}
           <Card style={styles.preview}>
             <View style={[styles.previewThumb, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-              <ProductImage id={editing?.id ?? name} name={name} zone={zone} size={56} radius={theme.imageRadius} />
+              <ProductImage
+                id={editing?.id ?? name}
+                name={name}
+                zone={zone}
+                uri={editing?.imageUrl}
+                size={56}
+                radius={theme.imageRadius}
+              />
             </View>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }} numberOfLines={1}>
@@ -174,6 +215,47 @@ function ProductForm({ editing }: { editing?: Product }) {
             />
           </Card>
 
+          {/* 카테고리 (백엔드) — 등록할 때만 정할 수 있다. */}
+          {!isEdit ? (
+            <Card style={{ gap: 10 }}>
+              <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>카테고리 *</Text>
+              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+                서버에 저장되는 분류예요. 등록 후에는 바꿀 수 없어요(백엔드에 수정 API가 없음).
+              </Text>
+              <View style={styles.categoryRow}>
+                {categories.map((c) => {
+                  const active = effectiveCategory === c.code;
+                  return (
+                    <Pressable
+                      key={c.code}
+                      onPress={() => setCategory(c.code)}
+                      style={[
+                        styles.categoryChip,
+                        {
+                          backgroundColor: active ? colors.primary : colors.surface,
+                          borderRadius: theme.radiusSm,
+                          minHeight: theme.minTouch - 8,
+                        },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`카테고리 ${c.name}`}
+                    >
+                      <Text
+                        style={{
+                          fontSize: theme.fontBody - 3,
+                          color: active ? colors.primaryText : colors.textMuted,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {c.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Card>
+          ) : null}
+
           {/* 매장 구역 */}
           <Card style={{ gap: 10 }}>
             <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>매장 구역 *</Text>
@@ -231,6 +313,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   preview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   previewThumb: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  categoryChip: { paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   twoCol: { flexDirection: 'row', gap: 10 },
   zoneGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   zoneChip: {

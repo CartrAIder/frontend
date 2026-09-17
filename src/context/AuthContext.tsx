@@ -6,11 +6,12 @@
  * 로그인 성공 시 받은 세션(토큰 포함)을 secure-store에 저장해 재시작 후에도 복원한다.
  */
 import { router } from 'expo-router';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert } from 'react-native';
 import { changePassword as changePasswordApi } from '@/lib/api';
 
 import {
+  fetchMyInfo,
   isTokenExpired,
   loginMember,
   logoutMember,
@@ -76,6 +77,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
     };
   }, []);
+
+  // 모바일 로그인/재발급 응답에는 이메일이 없다(이름만 온다) → 로그인 뒤 한 번 서버에서
+  // 프로필을 받아 세션을 보정한다. 계정당 1회만 부르고, 값이 같으면 저장도 건너뛴다.
+  const profileSyncedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session || profileSyncedFor.current === session.id) return;
+    profileSyncedFor.current = session.id;
+    fetchMyInfo()
+      .then((me) => {
+        setSession((prev) => {
+          if (!prev || (prev.name === me.name && prev.email === me.email)) return prev;
+          const next = { ...prev, name: me.name, email: me.email };
+          saveMemberSession(next).catch(() => {});
+          return next;
+        });
+      })
+      .catch(() => {
+        // 조회 실패는 무시 — 로그인 시 받은 이름으로 계속 쓴다.
+      });
+  }, [session]);
+
+  // 로그아웃하면 다음 로그인 때 프로필을 다시 받도록 초기화한다.
+  useEffect(() => {
+    if (!session) profileSyncedFor.current = null;
+  }, [session]);
 
   // refresh 토큰까지 만료돼 재발급이 불가능하면(apiFetch가 통지) 자동 로그아웃하고 로그인으로 보낸다.
   useEffect(() => {

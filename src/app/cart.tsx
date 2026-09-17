@@ -1,8 +1,10 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { ListRowSkeleton } from '@/components/Skeleton';
 import { TabTransition } from '@/components/TabTransition';
 import { AppBar } from '@/components/AppBar';
@@ -15,6 +17,7 @@ import { useCart } from '@/context/CartContext';
 import { useCartSession } from '@/context/CartSessionContext';
 import { useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
+import { abandonOrder } from '@/lib/api';
 import { confirmAction } from '@/lib/confirm';
 import { formatWon } from '@/lib/format';
 import { speakKo } from '@/lib/speak';
@@ -26,14 +29,21 @@ export default function CartScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { cartId, endSession } = useCartSession();
-  const { findProduct, isRestoring } = useCatalog();
+  const { cartId, endSession, checkoutStatus, pendingOrder, refreshSession } = useCartSession();
+  const { findProduct, isRestoring, refresh: refreshCatalog } = useCatalog();
   const cart = useCart();
   const bottomPad = useTabBarPadding();
   const insets = useSafeAreaInsets();
   // 탭바 실제 높이 = 토큰 높이 + 하단 safe area. 이걸 빼먹으면 결제 버튼이 탭바에 가린다.
   const tabBarTotal = theme.tabBarHeight + insets.bottom;
   const [bannerVisible, setBannerVisible] = useState(false);
+  const [abandoning, setAbandoning] = useState(false);
+  // 카트는 서버 세션(결제 대기 여부)과 상품 카탈로그를 함께 다시 맞춘다.
+  const { refreshing, refreshControl } = useBrandRefresh(
+    useCallback(() => Promise.all([refreshSession(), refreshCatalog()]), [refreshSession, refreshCatalog]),
+  );
+  // 결제 대기 중이면 서버가 카트를 잠근다 — 수량 변경·삭제·반납·스캔이 모두 거절된다.
+  const locked = checkoutStatus === 'PAYMENT_PENDING';
 
   useEffect(() => {
     if (!cart.lastScanned) return undefined;
@@ -46,6 +56,28 @@ export default function CartScreen() {
     const timer = setTimeout(() => setBannerVisible(false), 2500);
     return () => clearTimeout(timer);
   }, [cart.lastScanned, theme.voiceGuide]);
+
+  /** 결제 대기 주문 포기 — 서버에서 주문을 만료시키면 카트 잠금이 풀린다. */
+  function handleAbandon() {
+    if (!pendingOrder || abandoning) return;
+    confirmAction(
+      '결제 포기',
+      '진행 중인 결제를 취소하고 다시 담기로 돌아갈까요?',
+      async () => {
+        setAbandoning(true);
+        try {
+          await abandonOrder(pendingOrder.orderId);
+        } catch (e) {
+          // 이미 승인된 결제가 있으면 서버가 409로 막는다 — 사유를 그대로 보여준다.
+          Alert.alert('결제 취소 실패', e instanceof Error ? e.message : '다시 시도해주세요.');
+        } finally {
+          await refreshSession();
+          setAbandoning(false);
+        }
+      },
+      { confirmText: '결제 포기', destructive: true },
+    );
+  }
 
   function handleReturnCart() {
     confirmAction(
@@ -69,7 +101,7 @@ export default function CartScreen() {
           title="장바구니"
           onBack={() => router.replace('/home')}
           right={
-            cart.items.length > 0 ? (
+            cart.items.length > 0 && !locked ? (
               <Pressable onPress={handleReturnCart} hitSlop={8} accessibilityLabel="카트 반납">
                 <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>반납</Text>
               </Pressable>
@@ -101,10 +133,50 @@ export default function CartScreen() {
           </View>
         </View>
 
+        {/* 결제 대기 배너 — 앱을 껐다 켜도 서버(pendingOrder)에서 복구된다. */}
+        {locked && pendingOrder ? (
+          <View style={{ paddingHorizontal: GUTTER, paddingBottom: 10 }}>
+            <View style={[styles.pendingBox, { backgroundColor: colors.warningSurface, borderRadius: theme.radiusSm }]}>
+              <Text style={{ fontSize: theme.fontBody - 2, color: colors.warningText, fontWeight: '700' }}>
+                결제가 진행 중이에요
+              </Text>
+              <Text style={{ fontSize: theme.fontBody - 3, color: colors.warningText }}>
+                {pendingOrder.orderName} · {formatWon(pendingOrder.amount)}
+                {'\n'}결제를 끝내거나 포기하기 전까지는 상품을 담거나 뺄 수 없어요.
+              </Text>
+              <View style={styles.pendingActions}>
+                <Pressable
+                  onPress={handleAbandon}
+                  disabled={abandoning}
+                  hitSlop={8}
+                  style={{ minHeight: theme.minTouch, justifyContent: 'center' }}
+                  accessibilityLabel="결제 포기"
+                >
+                  <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger, fontWeight: '700' }}>
+                    {abandoning ? '취소하는 중…' : '결제 포기'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => router.push('/checkout')}
+                  hitSlop={8}
+                  style={{ minHeight: theme.minTouch, justifyContent: 'center' }}
+                  accessibilityLabel="이어서 결제"
+                >
+                  <Text style={{ fontSize: theme.fontBody - 2, color: colors.primary, fontWeight: '800' }}>
+                    이어서 결제
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: bottomPad + (empty ? 0 : 130) }}
           showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
         >
+          <BrandRefreshLoader visible={refreshing} />
           {isRestoring ? (
             <View>
               {[0, 1, 2].map((i) => (
@@ -133,6 +205,7 @@ export default function CartScreen() {
                         id={item.id}
                         name={item.name}
                         zone={catalog?.zone}
+                        uri={catalog?.imageUrl}
                         size={72}
                         radius={theme.imageRadius}
                       />
@@ -153,12 +226,14 @@ export default function CartScreen() {
                           <View style={{ flex: 1 }} />
                           <QuantityStepper
                             quantity={item.qty}
+                            disabled={locked}
                             onChange={(next) => (next > item.qty ? cart.increaseQty(item.id) : cart.decreaseQty(item.id))}
                           />
                           <Pressable
                             onPress={() => cart.removeItem(item.id)}
+                            disabled={locked}
                             hitSlop={8}
-                            style={{ padding: 4 }}
+                            style={{ padding: 4, opacity: locked ? 0.35 : 1 }}
                             accessibilityLabel={`${item.name} 삭제`}
                           >
                             <Icon name="trash" size={18} color={colors.textMuted} />
@@ -200,7 +275,11 @@ export default function CartScreen() {
                 {formatWon(cart.total)}
               </Text>
             </View>
-            <PrimaryButton title={`${formatWon(cart.total)} 결제하기`} variant="success" onPress={() => router.push('/checkout')} />
+            <PrimaryButton
+              title={locked ? '이어서 결제하기' : `${formatWon(cart.total)} 결제하기`}
+              variant="success"
+              onPress={() => router.push('/checkout')}
+            />
           </View>
         ) : null}
       </TabTransition>
@@ -214,6 +293,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 14 },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
+  pendingBox: { gap: 6, paddingVertical: 12, paddingHorizontal: 14 },
+  pendingActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14 },
   itemBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   rowDivider: { height: StyleSheet.hairlineWidth },

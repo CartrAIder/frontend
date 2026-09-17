@@ -1,8 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppBar } from '@/components/AppBar';
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Icon } from '@/components/Icon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProductImage } from '@/components/ProductImage';
@@ -11,8 +13,8 @@ import { Badge, EmptyState, Price, ProductCard, SectionHeader } from '@/componen
 import { useCartSession } from '@/context/CartSessionContext';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
+import { useHeroSize, useProductGrid } from '@/lib/layout';
 
-const SCREEN_W = Dimensions.get('window').width;
 const GUTTER = 20;
 
 /**
@@ -24,8 +26,12 @@ export default function ProductDetailScreen() {
   const { colors } = theme;
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { findProduct, findZone, zones, productsInZone } = useCatalog();
+  const { findProduct, findZone, zones, productsInZone, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
   const { isConnected } = useCartSession();
+  // 훅은 early return 앞에서 전부 호출해야 한다(상품을 못 찾는 분기가 아래에 있다).
+  const { railCardWidth: railCardW } = useProductGrid(theme.gridColumns, theme.spacing, GUTTER);
+  const heroSize = useHeroSize();
 
   const product = id ? findProduct(id) : undefined;
 
@@ -51,21 +57,29 @@ export default function ProductDetailScreen() {
   const route = zone && zone.row < 2 ? buildRoute(zone.row, zone.col) : null;
   const distance = zone ? estimateDistanceMeters(zone.row, zone.col) : 0;
   const related = zone ? productsInZone(zone.id).filter((p) => p.id !== product.id).slice(0, 6) : [];
-  const railCardW = Math.round((SCREEN_W - GUTTER * 2) / 2.4);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <AppBar title="상품 상세" />
-      <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
-        {/* 대표 이미지 — 정사각 풀블리드 */}
-        <View>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
+      >
+        <View style={{ paddingHorizontal: GUTTER }}>
+          <BrandRefreshLoader visible={refreshing} />
+        </View>
+        {/* 대표 이미지 — 정사각. 넓은 화면에서는 상한(useHeroSize)까지만 키우고 가운데 정렬한다. */}
+        <View style={{ width: heroSize, alignSelf: 'center' }}>
           <ProductImage
             id={product.id}
             name={product.name}
             zone={product.zone}
-            size={SCREEN_W}
+            uri={product.imageUrl}
+            size={heroSize}
             radius={0}
             dimmed={soldOut}
+            priority="high"
           />
           {soldOut ? (
             <View style={styles.soldOutOverlay}>

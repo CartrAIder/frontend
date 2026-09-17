@@ -75,12 +75,12 @@ const KEYWORD_RULES: { kind: ArtKind; words: string[] }[] = [
 
 /** 매대 구역별 기본값 — 키워드가 안 걸릴 때 쓴다. */
 const ZONE_FALLBACK: Record<string, ArtKind> = {
-  fresh: 'leaf',
-  dairy: 'milk',
+  food: 'tin',
   beverage: 'bottle',
-  packaged: 'tin',
-  frozen: 'frozen',
-  bakery: 'snack',
+  household: 'box',
+  digital: 'box',
+  beauty: 'box',
+  leisure: 'box',
 };
 
 /** 일러스트 종류별 색 팔레트 (배경, 주색, 보조색). */

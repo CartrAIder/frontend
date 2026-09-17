@@ -23,7 +23,9 @@ const CHUNK_SIZE = 600;
 const MAX_CHUNKS = 64;
 
 /** 저장 스키마가 바뀌면 올린다. 저장본 버전이 낮으면 버린다. (v1=구 mock 전체상품 저장) */
-export const CATALOG_VERSION = 2;
+// 3: 매대 구역 id 개편(fresh/dairy/… → food/beverage/household/digital/beauty/leisure).
+//    옛 저장본을 그대로 복원하면 사라진 구역 id가 남아 지도·필터가 어긋난다.
+export const CATALOG_VERSION = 3;
 
 export interface StoredCatalog {
   version: number;

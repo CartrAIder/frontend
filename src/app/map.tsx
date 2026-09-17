@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/Icon';
 import { AppBar } from '@/components/AppBar';
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
 import { StoreMap } from '@/components/StoreMap';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
@@ -18,7 +20,8 @@ export default function MapScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { zones, shelfZones, findZone, productsInZone } = useCatalog();
+  const { zones, shelfZones, findZone, productsInZone, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
 
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? findZone(selectedZoneId) : undefined;
@@ -27,7 +30,9 @@ export default function MapScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <AppBar title="매장 지도" />
-      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} refreshControl={refreshControl}>
+        <BrandRefreshLoader visible={refreshing} />
+
         <Card style={{ gap: 10 }}>
           <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>
             구역을 탭하면 그곳에서 파는 상품을 볼 수 있어요.

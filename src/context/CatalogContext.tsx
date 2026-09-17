@@ -17,9 +17,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+
+import { Image as ExpoImage } from 'expo-image';
 
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -27,6 +30,7 @@ import {
   adminUpdateProduct,
   fetchProducts,
   type ApiProduct,
+  type ApiProductCategory,
   type ApiProductStatus,
 } from '@/lib/api';
 import { categoryForZone, mergeCatalog, type OverlayMap, type ProductOverlay } from '@/lib/catalog/overlay';
@@ -47,7 +51,8 @@ interface CatalogContextValue {
   findZone: (zoneId: string) => StoreZone | undefined;
   productsInZone: (zoneId: string) => Product[];
   /** 상품 등록 — 백엔드에 생성(바코드 필요) + 로컬 표현(아이콘·구역·재고·할인) 저장. */
-  createProduct: (draft: ProductDraft, barcode: string) => Promise<Product>;
+  /** 상품 등록. category를 주지 않으면 매대 구역에서 대표 카테고리를 유추한다. */
+  createProduct: (draft: ProductDraft, barcode: string, category?: ApiProductCategory) => Promise<Product>;
   /** 상품 수정 — 백엔드에 가격·판매상태 반영 + 로컬 표현 갱신(백엔드는 이름/카테고리 수정 불가). */
   editProduct: (productId: string, draft: ProductDraft) => Promise<void>;
   /**
@@ -106,6 +111,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [isRestoring, setIsRestoring] = useState(true);
   const [hydrated, setHydrated] = useState(false);
   const { isAuthenticated } = useAuth();
+  /** 서버에서 상품을 받아온 적이 있는지 — 캐시 복원이 최신 결과를 덮어쓰는 것을 막는다. */
+  const freshLoaded = useRef(false);
 
   // 마운트 시 로컬 레이어 복원(오버레이·구역·상품 캐시). 없으면 빈 오버레이 + 기본 구역.
   useEffect(() => {
@@ -114,7 +121,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         if (stored) {
           setOverlay(stored.overlay ?? {});
           setZones(stored.zones ?? DEFAULT_ZONES);
-          setApiProducts(stored.cachedProducts ?? []);
+          // 서버 응답이 먼저 도착했으면(느린 기기·빠른 네트워크) 캐시로 덮어쓰지 않는다.
+          if (!freshLoaded.current) setApiProducts(stored.cachedProducts ?? []);
         }
       })
       .finally(() => {
@@ -127,16 +135,32 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const list = await fetchProducts();
+      freshLoaded.current = true;
       setApiProducts(list);
+      // 목록을 받은 직후 상품 사진을 디스크 캐시에 미리 받아둔다.
+      // 홈/카테고리로 들어갈 때 네트워크를 기다리지 않고 바로 뜨게 하려는 것이라
+      // 실패는 무시한다(그때 가서 각 이미지가 알아서 다시 받는다).
+      const urls = list.map((p) => p.imageUrl).filter((url): url is string => Boolean(url));
+      if (urls.length > 0) {
+        ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => {});
+      }
     } catch {
       // 네트워크/인증 오류 — 마지막 캐시 유지
     }
   }, []);
 
-  // 로그인되면 최신 상품을 받아온다.
+  /**
+   * 상품 조회는 로그인이 필요 없다(서버에서 /api/products permitAll).
+   * 그래서 앱이 켜지자마자 — 로그인 화면이 떠 있는 동안 — 미리 받아둔다. 효과가 세 가지다.
+   *  1. HTTPS 연결이 미리 뚫린다. 첫 요청은 TLS 핸드셰이크 때문에 0.7초쯤 더 드는데,
+   *     로그인 버튼을 누르는 시점엔 그 비용을 이미 치른 상태가 된다.
+   *  2. 상품 목록이 이미 메모리에 있어서 로그인 직후 홈이 바로 그려진다.
+   *  3. 상품 사진 프리페치도 그만큼 일찍 시작된다.
+   * 로그인 상태가 바뀔 때도 다시 받아 최신화한다.
+   */
   useEffect(() => {
-    if (isAuthenticated) refresh();
-  }, [isAuthenticated, refresh]);
+    refresh();
+  }, [refresh, isAuthenticated]);
 
   // 백엔드 상품 + 로컬 오버레이 → 화면용 상품 목록.
   const products = useMemo(() => mergeCatalog(apiProducts, overlay), [apiProducts, overlay]);
@@ -162,13 +186,13 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
   // 상품 등록 — 백엔드에 생성 후 로컬 표현(아이콘·구역·재고·할인)을 오버레이로 저장한다.
   const createProduct = useCallback(
-    async (draft: ProductDraft, barcode: string): Promise<Product> => {
+    async (draft: ProductDraft, barcode: string, category?: ApiProductCategory): Promise<Product> => {
       const bc = barcode.trim();
       const created = await adminCreateProduct({
         barcode: bc,
         name: draft.name,
         price: draft.unitPrice,
-        category: categoryForZone(draft.zone),
+        category: category ?? categoryForZone(draft.zone),
         status: statusFromStock(draft.stock),
       });
       setOverlay((prev) => ({ ...prev, [created.barcode]: presentationOverlay(draft) }));

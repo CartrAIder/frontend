@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/Icon';
 import { AppBar } from '@/components/AppBar';
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCatalog } from '@/context/CatalogContext';
@@ -15,7 +17,8 @@ export default function AdminProductsScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { products, findZone, updateProduct, removeProduct } = useCatalog();
+  const { products, findZone, updateProduct, removeProduct, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -48,7 +51,13 @@ export default function AdminProductsScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <AppBar title="상품 관리" />
-      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ padding: 20, gap: theme.spacing }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl}
+      >
+        <BrandRefreshLoader visible={refreshing} />
+
         <PrimaryButton title="새 상품 등록" onPress={() => router.push('/admin/product-form')} />
 
         <View style={[styles.searchRow, { backgroundColor: colors.surface, borderRadius: theme.radiusSm, minHeight: theme.minTouch }]}>

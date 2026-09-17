@@ -20,21 +20,37 @@ import {
 } from 'react';
 
 import { useAuth } from '@/context/AuthContext';
-import { connectCart, disconnectCart } from '@/lib/api';
+import {
+  connectCart,
+  disconnectCart,
+  fetchCurrentCart,
+  type CheckoutStatus,
+  type PendingOrder,
+} from '@/lib/api';
 import { clearCartId, loadCartId, saveCartId } from '@/lib/cartStorage';
 
 interface CartSessionValue {
   cartId: string | null;
   isConnected: boolean;
   isRestoring: boolean;
+  /** PAYMENT_PENDING이면 카트가 잠겨 있다(수량 변경·스캔·반납 불가). */
+  checkoutStatus: CheckoutStatus;
+  /** 결제가 끝나지 않은 주문. 앱을 껐다 켜도 서버에서 복구된다. */
+  pendingOrder: PendingOrder | null;
   connect: (code: string) => Promise<void>;
   endSession: () => void;
+  /** 결제 승인 후처럼 서버가 이미 카트를 정리한 경우 — 로컬 상태만 비운다. */
+  endSessionLocally: () => void;
+  /** 서버 기준으로 카트 세션·결제 대기 상태를 다시 맞춘다. */
+  refreshSession: () => Promise<void>;
 }
 
 const CartSessionContext = createContext<CartSessionValue | undefined>(undefined);
 
 export function CartSessionProvider({ children }: { children: ReactNode }) {
   const [cartId, setCartId] = useState<string | null>(null);
+  const [checkoutStatus, setCheckoutStatus] = useState<CheckoutStatus>('SHOPPING');
+  const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
   const [isRestoring, setIsRestoring] = useState(true);
   const { isRestoring: authRestoring, isAuthenticated } = useAuth();
   // endSession이 항상 최신 cartId를 참조하도록(콜백 identity는 안정 유지) ref 사용.
@@ -48,20 +64,63 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const connect = useCallback(async (code: string) => {
-    const { cartId: connectedId } = await connectCart(code);
-    setCartId(connectedId);
-    await saveCartId(connectedId);
+    const result = await connectCart(code);
+    setCartId(result.cartId);
+    setCheckoutStatus(result.checkoutStatus);
+    setPendingOrder(result.pendingOrder);
+    await saveCartId(result.cartId);
+  }, []);
+
+  /** 로컬 상태만 초기화(서버 호출 없음). */
+  const resetLocal = useCallback(() => {
+    setCartId(null);
+    setCheckoutStatus('SHOPPING');
+    setPendingOrder(null);
+    clearCartId().catch(() => {
+      // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.
+    });
   }, []);
 
   const endSession = useCallback(() => {
     const id = cartIdRef.current;
-    setCartId(null);
-    clearCartId().catch(() => {
-      // 삭제 실패는 무시 — 메모리 상 상태는 이미 초기화됨.
-    });
+    resetLocal();
     // 서버 점유 해제(best-effort) — 실패해도 로컬 세션은 이미 정리됨.
     if (id) disconnectCart(id).catch(() => {});
-  }, []);
+  }, [resetLocal]);
+
+  // 결제가 승인되면 백엔드(PaymentService)가 카트 세션을 알아서 닫는다.
+  // 여기서 DELETE를 또 부르면 이미 사라진 세션이라 404가 나므로 로컬만 정리한다.
+  const endSessionLocally = useCallback(() => {
+    resetLocal();
+  }, [resetLocal]);
+
+  /**
+   * 서버의 현재 카트로 로컬 세션을 맞춘다.
+   * - 서버에 세션이 없으면(카트 TTL 만료·다른 기기에서 반납) 로컬 cartId도 버린다.
+   * - 결제 대기 주문이 남아 있으면 복구해 "이어서 결제"를 띄울 수 있게 한다.
+   */
+  const refreshSession = useCallback(async () => {
+    try {
+      const session = await fetchCurrentCart();
+      if (!session) {
+        if (cartIdRef.current) resetLocal();
+        return;
+      }
+      setCartId(session.cartId);
+      setCheckoutStatus(session.checkoutStatus);
+      setPendingOrder(session.pendingOrder);
+      await saveCartId(session.cartId);
+    } catch {
+      // 네트워크/인증 실패 — 로컬 상태를 그대로 두고 다음 기회에 다시 맞춘다.
+    }
+  }, [resetLocal]);
+
+  // 로그인 상태가 되면 서버 카트와 한 번 맞춘다(결제 대기 복구 · 만료된 로컬 세션 정리).
+  useEffect(() => {
+    if (authRestoring || isRestoring || !isAuthenticated) return;
+    refreshSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authRestoring, isRestoring, isAuthenticated]);
 
   // 캐스케이드: 회원이 로그아웃하면(복원이 끝난 뒤 비인증) 카트 세션도 종료한다.
   const wasAuthenticated = useRef(false);
@@ -78,10 +137,14 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
       cartId,
       isConnected: cartId !== null,
       isRestoring,
+      checkoutStatus,
+      pendingOrder,
       connect,
       endSession,
+      endSessionLocally,
+      refreshSession,
     }),
-    [cartId, isRestoring, connect, endSession],
+    [cartId, isRestoring, checkoutStatus, pendingOrder, connect, endSession, endSessionLocally, refreshSession],
   );
 
   return <CartSessionContext.Provider value={value}>{children}</CartSessionContext.Provider>;

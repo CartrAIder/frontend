@@ -54,6 +54,8 @@ export default function RootLayout() {
                     {/* 탭 화면은 TabTransition 이 직접 좌/우 슬라이드를 그린다 */}
                     <Stack.Screen name="products" options={{ animation: 'none' }} />
                     <Stack.Screen name="product/[id]" />
+                    <Stack.Screen name="orders" />
+                    <Stack.Screen name="order/[orderId]" />
                     {/* 관리자 영역은 app/admin/_layout.tsx가 권한을 확인하고 자체 Stack을 갖는다. */}
                     <Stack.Screen name="admin" />
                   </Stack>

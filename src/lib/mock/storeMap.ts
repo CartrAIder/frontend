@@ -18,13 +18,17 @@ export interface StoreZone {
   icon: string;
 }
 
+/**
+ * 매대 6칸. 백엔드 상품 구성(식품·음료·생활·디지털·뷰티·패션/취미)에 맞춰 잡았다.
+ * 카테고리 → 구역 매핑은 `lib/catalog/overlay.ts`의 CATEGORY_ZONE이 담당한다.
+ */
 export const DEFAULT_ZONES: StoreZone[] = [
-  { id: 'fresh', label: '야채/과일', row: 0, col: 0, color: '#DCFCE7', icon: '🥬' },
-  { id: 'dairy', label: '유제품', row: 0, col: 1, color: '#DBEAFE', icon: '🥛' },
-  { id: 'beverage', label: '음료', row: 0, col: 2, color: '#FEF9C3', icon: '🥤' },
-  { id: 'packaged', label: '가공식품', row: 1, col: 0, color: '#FDE68A', icon: '🥫' },
-  { id: 'frozen', label: '냉동식품', row: 1, col: 1, color: '#E0E7FF', icon: '🧊' },
-  { id: 'bakery', label: '제과/스낵', row: 1, col: 2, color: '#FCE7F3', icon: '🍞' },
+  { id: 'food', label: '식품', row: 0, col: 0, color: '#DCFCE7', icon: '🍚' },
+  { id: 'beverage', label: '음료', row: 0, col: 1, color: '#FEF9C3', icon: '🥤' },
+  { id: 'household', label: '생활용품', row: 0, col: 2, color: '#E0E7FF', icon: '🧴' },
+  { id: 'digital', label: '디지털/가전', row: 1, col: 0, color: '#DBEAFE', icon: '🔌' },
+  { id: 'beauty', label: '화장품/미용', row: 1, col: 1, color: '#FCE7F3', icon: '💄' },
+  { id: 'leisure', label: '패션/취미', row: 1, col: 2, color: '#FDE68A', icon: '🎒' },
   { id: 'checkout', label: '계산대/입출구', row: 2, col: 0, colSpan: 3, color: '#E5E7EB', icon: '🧾' },
 ];
 

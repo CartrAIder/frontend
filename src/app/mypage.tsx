@@ -1,7 +1,10 @@
 import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { TabTransition } from '@/components/TabTransition';
 import { AppBar } from '@/components/AppBar';
 import { BottomTabBar, useTabBarPadding } from '@/components/BottomTabBar';
@@ -9,6 +12,7 @@ import { Icon, type IconName } from '@/components/Icon';
 import { ModeToggle } from '@/components/ModeToggle';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ModeContext';
+import { fetchPurchaseHistory } from '@/lib/api';
 import { confirmAction } from '@/lib/confirm';
 
 const GUTTER = 20;
@@ -20,6 +24,23 @@ export default function MyPageScreen() {
   const router = useRouter();
   const { member, isAdmin, logout } = useAuth();
   const bottomPad = useTabBarPadding();
+  // 구매 내역은 slice(hasNext) 응답이라 총 건수를 모른다 → 첫 페이지 수 + 더 있으면 "+".
+  const [orderCount, setOrderCount] = useState<string>('—');
+
+  const loadOrderCount = useCallback(async () => {
+    try {
+      const res = await fetchPurchaseHistory({ page: 0, size: 20 });
+      setOrderCount(res.hasNext ? `${res.orders.length}+` : String(res.orders.length));
+    } catch {
+      setOrderCount('—');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOrderCount();
+  }, [loadOrderCount]);
+
+  const { refreshing, refreshControl } = useBrandRefresh(loadOrderCount);
 
   function handleLogout() {
     confirmAction(
@@ -41,7 +62,11 @@ export default function MyPageScreen() {
         <ScrollView
           contentContainerStyle={{ paddingBottom: bottomPad, gap: theme.spacing }}
           showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
         >
+          <View style={{ paddingHorizontal: GUTTER }}>
+            <BrandRefreshLoader visible={refreshing} />
+          </View>
           {/* 프로필 */}
           <View style={[styles.profile, { paddingHorizontal: GUTTER }]}>
             <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
@@ -71,12 +96,13 @@ export default function MyPageScreen() {
               <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
               <StatCell label="쿠폰" value="3" unit="장" />
               <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-              <StatCell label="주문" value="0" unit="건" />
+              <StatCell label="주문" value={orderCount} unit="건" />
             </View>
           </View>
 
           {/* 쇼핑 */}
           <MenuGroup title="쇼핑">
+            <MenuRow icon="receipt" label="구매 내역" onPress={() => router.push('/orders')} />
             <MenuRow icon="grid" label="상품 둘러보기" onPress={() => router.replace('/products')} />
             <MenuRow icon="map" label="매장 지도" onPress={() => router.push('/map')} />
             <MenuRow icon="scan" label="카트 연결" onPress={() => router.push('/connect')} />

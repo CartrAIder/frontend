@@ -6,50 +6,69 @@
  * 그대로 유지하려면 이 오버레이가 필요하다. 아이콘·구역은 카테고리(+상품명)에서 파생하고,
  * 관리자가 편집한 값은 barcode 기준 오버레이로 저장돼 파생값을 덮어쓴다.
  */
-import type { ApiProduct } from '../api';
+import type { ApiProduct, ApiProductCategory } from '../api';
 import type { Product } from '../mock/products';
 
 /** 매장 매대 구역 id (storeMap.ts의 6개 매대와 일치). */
-export type ZoneId = 'fresh' | 'dairy' | 'beverage' | 'packaged' | 'frozen' | 'bakery';
+export type ZoneId = 'food' | 'beverage' | 'household' | 'digital' | 'beauty' | 'leisure';
 
-/** 백엔드 11개 카테고리 → 앱 6개 매대 구역. 없는 카테고리는 packaged(가공식품)로. */
+/**
+ * 백엔드 카테고리(ProductCategory) → 앱 6개 매대 구역. 모르는 값은 식품 매대로 보낸다.
+ * 백엔드가 카테고리를 늘리면(FOOD·BEAUTY·DIGITAL_ELECTRONICS 등) 여기도 같이 채워야
+ * 지도·구역 필터가 살아 있다. 빠뜨리면 전부 한 매대로 몰린다.
+ */
 const CATEGORY_ZONE: Record<string, ZoneId> = {
-  과일: 'fresh',
-  채소: 'fresh',
-  유제품: 'dairy',
-  냉장식품: 'dairy',
-  음료: 'beverage',
-  식품: 'packaged',
-  생활용품: 'packaged',
-  반려동물: 'packaged',
-  정육: 'packaged',
-  냉동식품: 'frozen',
-  과자: 'bakery',
+  // 식품
+  FOOD: 'food',
+  SNACK: 'food',
+  FRUIT: 'food',
+  VEGETABLE: 'food',
+  FROZEN: 'food',
+  // 음료
+  BEVERAGE: 'beverage',
+  DAIRY: 'beverage',
+  // 생활용품
+  HOUSEHOLD: 'household',
+  KITCHENWARE: 'household',
+  // 디지털/가전
+  DIGITAL_ELECTRONICS: 'digital',
+  // 화장품/미용
+  BEAUTY: 'beauty',
+  // 패션/취미
+  FASHION_ACCESSORIES: 'leisure',
+  TOYS_HOBBIES: 'leisure',
+  SPORTS_LEISURE: 'leisure',
 };
 
-/** 매대 구역 → 대표 카테고리 (로컬 추가 상품을 백엔드에 만들 때 카테고리 채움용). */
-const ZONE_CATEGORY: Record<ZoneId, string> = {
-  fresh: '과일',
-  dairy: '유제품',
-  beverage: '음료',
-  packaged: '식품',
-  frozen: '냉동식품',
-  bakery: '과자',
+/**
+ * 매대 구역 → 대표 카테고리 (관리자가 상품을 등록할 때 카테고리 기본값으로 쓴다).
+ * 한 구역에 여러 카테고리가 묶이므로 그 중 가장 대표적인 하나를 고른다.
+ */
+const ZONE_CATEGORY: Record<ZoneId, ApiProductCategory> = {
+  food: 'FOOD',
+  beverage: 'BEVERAGE',
+  household: 'HOUSEHOLD',
+  digital: 'DIGITAL_ELECTRONICS',
+  beauty: 'BEAUTY',
+  leisure: 'FASHION_ACCESSORIES',
 };
 
-/** 카테고리 기본 아이콘. */
+/** 카테고리 기본 아이콘 — 서버 사진도 번들 사진도 없을 때의 최후 표시. */
 const CATEGORY_ICON: Record<string, string> = {
-  과일: '🍎',
-  채소: '🥬',
-  유제품: '🥛',
-  냉장식품: '🧊',
-  음료: '🥤',
-  식품: '🥫',
-  생활용품: '🧴',
-  반려동물: '🐶',
-  정육: '🥩',
-  냉동식품: '🧊',
-  과자: '🍪',
+  FOOD: '🍚',
+  SNACK: '🍪',
+  FRUIT: '🍎',
+  VEGETABLE: '🥬',
+  FROZEN: '🧊',
+  BEVERAGE: '🥤',
+  DAIRY: '🥛',
+  HOUSEHOLD: '🧴',
+  KITCHENWARE: '🍳',
+  DIGITAL_ELECTRONICS: '🔌',
+  BEAUTY: '💄',
+  FASHION_ACCESSORIES: '🎒',
+  TOYS_HOBBIES: '🧸',
+  SPORTS_LEISURE: '⚽️',
 };
 
 /** 상품명 키워드 → 아이콘 (데모 완성도용, 카테고리 기본값보다 우선). */
@@ -70,11 +89,11 @@ export function iconFor(name: string, category: string): string {
 }
 
 export function zoneFor(category: string): ZoneId {
-  return CATEGORY_ZONE[category] ?? 'packaged';
+  return CATEGORY_ZONE[category] ?? 'food';
 }
 
-export function categoryForZone(zone: string): string {
-  return ZONE_CATEGORY[zone as ZoneId] ?? '식품';
+export function categoryForZone(zone: string): ApiProductCategory {
+  return ZONE_CATEGORY[zone as ZoneId] ?? 'FOOD';
 }
 
 /** 백엔드에 없는 필드의 기본 재고 — 관리자가 조정하기 전까지 표시용. */
@@ -105,6 +124,7 @@ interface MergeBase {
   unitPrice: number;
   category: string;
   status: string;
+  imageUrl?: string | null;
 }
 
 function buildProduct(barcode: string, o: ProductOverlay, base: MergeBase): Product {
@@ -123,6 +143,7 @@ function buildProduct(barcode: string, o: ProductOverlay, base: MergeBase): Prod
     backendId: base.backendId,
     category: base.category,
     status: base.status,
+    imageUrl: base.imageUrl ?? null,
   };
 }
 
@@ -144,6 +165,7 @@ export function mergeCatalog(apiProducts: ApiProduct[], overlay: OverlayMap): Pr
         name: o.name ?? p.name,
         unitPrice: o.unitPrice ?? p.price,
         category: p.category,
+        imageUrl: p.imageUrl,
         status: p.status,
       }),
     );

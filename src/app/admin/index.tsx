@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from '@/components/Icon';
 import { AppBar } from '@/components/AppBar';
+import { BrandRefreshLoader } from '@/components/BrandLoader';
+import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
 import { useAuth } from '@/context/AuthContext';
 import { useCatalog } from '@/context/CatalogContext';
@@ -18,7 +20,8 @@ export default function AdminHomeScreen() {
   const { colors } = theme;
   const router = useRouter();
   const { member } = useAuth();
-  const { products, shelfZones, resetCatalog } = useCatalog();
+  const { products, shelfZones, resetCatalog, refresh } = useCatalog();
+  const { refreshing, refreshControl } = useBrandRefresh(refresh);
 
   const soldOut = products.filter((p) => p.stock === 0);
   const lowStock = products.filter((p) => p.stock > 0 && p.stock <= 10);
@@ -73,7 +76,9 @@ export default function AdminHomeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <AppBar title="관리자 콘솔" onBack={() => router.replace('/home')} />
-      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} refreshControl={refreshControl}>
+        <BrandRefreshLoader visible={refreshing} />
+
         {/* 관리자 배너 */}
         <View style={[styles.banner, theme.shadowCard, { backgroundColor: colors.text, borderRadius: theme.radius }]}>
           <View style={{ flex: 1, gap: 3 }}>
