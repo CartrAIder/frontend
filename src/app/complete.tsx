@@ -34,16 +34,20 @@ export default function CompleteScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { endSession } = useCartSession();
+  const { endSessionLocally } = useCartSession();
   const params = useLocalSearchParams<{
     receiptId?: string;
     amount?: string;
     orderName?: string;
     items?: string;
     paidAt?: string;
+    gateToken?: string;
   }>();
 
   const receiptId = params.receiptId ?? '—';
+  // 출구 게이트가 스캔하는 1회성 토큰(결제 승인 응답). 없으면 주문번호로 폴백한다.
+  const gateToken = params.gateToken?.trim() ? params.gateToken.trim() : null;
+  const qrValue = gateToken ?? receiptId;
   const amount = Number(params.amount ?? 0);
   const paidAt = Number(params.paidAt ?? Date.now());
   const items: ReceiptItem[] = useMemo(() => {
@@ -66,9 +70,9 @@ export default function CompleteScreen() {
         ? items[0].name
         : `${items[0].name} 외 ${items.length - 1}개`;
 
-  // 결제 완료 화면 진입 = 결제 플로우 종료 → 카트 세션 자동 반납.
+  // 결제가 승인되면 백엔드가 카트 세션을 이미 닫는다 → 로컬 상태만 정리한다.
   useEffect(() => {
-    endSession();
+    endSessionLocally();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,9 +141,11 @@ export default function CompleteScreen() {
           </View>
 
           <View style={styles.qrWrap}>
-            <QRCode value={receiptId} size={124} />
+            <QRCode value={qrValue} size={124} />
           </View>
-          <Text style={styles.qrHint}>계산대에서 이 코드를 보여주세요</Text>
+          <Text style={styles.qrHint}>
+            {gateToken ? '출구 게이트에서 이 코드를 보여주세요' : '계산대에서 이 코드를 보여주세요'}
+          </Text>
 
           <View style={styles.dashed} />
 

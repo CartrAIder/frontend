@@ -71,6 +71,40 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
+/**
+ * 백엔드 에러 응답을 담는 예외. `code`는 서버 ErrorCode 이름(CART_PAYMENT_PENDING 등)으로,
+ * 화면이 상태별 분기를 하려면 message 문자열 대신 이걸 봐야 한다.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** 응답이 실패일 때 ApiError로 변환한다(코드 + 사용자 문구). */
+async function extractError(res: Response): Promise<ApiError> {
+  let code: string | null = null;
+  let message = '';
+  try {
+    const body = await res.clone().json();
+    if (typeof body?.code === 'string') code = body.code;
+    if (Array.isArray(body?.details) && body.details.length > 0) {
+      message = body.details.join('\n');
+    } else if (typeof body?.message === 'string') {
+      message = body.message;
+    }
+  } catch {
+    // JSON 파싱 실패 → 아래 기본 문구
+  }
+  return new ApiError(message || `요청에 실패했어요. (${res.status})`, res.status, code);
+}
+
 async function extractErrorMessage(res: Response): Promise<string> {
   try {
     const body = await res.json();
@@ -108,7 +142,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}, retrying
   }
 
   if (!res.ok) {
-    throw new Error(await extractErrorMessage(res));
+    throw await extractError(res);
   }
   // 204 or empty body 대응 (삭제, 수량이 0일때, 로그아웃...등)
   if (res.status === 204 || res.headers.get('content-length') === '0') {
@@ -355,6 +389,21 @@ export async function logoutMember(): Promise<void> {
   }
 }
 
+/** 내 정보 (백엔드 UserResponse). */
+export interface MyInfo {
+  userId: number;
+  email: string;
+  name: string;
+}
+
+/**
+ * 내 정보 조회. GET /api/users/me → { userId, email, name }
+ * 모바일 로그인 응답에는 이메일이 없어서, 로그인 직후 이걸로 프로필을 채운다.
+ */
+export async function fetchMyInfo(): Promise<MyInfo> {
+  return apiFetch<MyInfo>('/api/users/me');
+}
+
 /**
  * 회원 탈퇴 — 서버가 계정을 익명화(soft delete)하고 카트 연결·SSE·Refresh Token을 모두 정리한다.
  * DELETE /api/users/me { currentPassword } → 204
@@ -504,8 +553,21 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 // ── 카트 세션 ──────────────────────────────────────────────────────────
 
+/** 카트가 쇼핑 중인지, 결제 대기 주문에 묶여 있는지 (백엔드 CheckoutStatus). */
+export type CheckoutStatus = 'SHOPPING' | 'PAYMENT_PENDING';
+
+/** 아직 결제가 끝나지 않은 주문 — 앱을 껐다 켜도 이걸로 결제를 이어간다. */
+export interface PendingOrder {
+  orderId: string;
+  orderName: string;
+  amount: number;
+}
+
 export interface ConnectCartResult {
   cartId: string; // 프론트 세션 식별자 = qrCode
+  checkoutStatus: CheckoutStatus;
+  /** PAYMENT_PENDING일 때만 값이 있다. 결제 대기 주문(이어서 결제 or 포기). */
+  pendingOrder: PendingOrder | null;
 }
 
 /**
@@ -520,16 +582,20 @@ export async function connectCart(code: string): Promise<ConnectCartResult> {
 
   if (USE_MOCK) {
     await delay(500);
-    return { cartId: trimmed.toUpperCase() };
+    return { cartId: trimmed.toUpperCase(), checkoutStatus: 'SHOPPING', pendingOrder: null };
   }
 
-  // 백엔드: { cartId(number), qrCode, status, connectionType, snapshot } 반환
+  // 백엔드: { cartId(number), qrCode, status, connectionType, snapshot, checkoutStatus, pendingOrder }
   // 이후 SSE/수량/삭제 전부 qrCode 기준이므로 세션 식별자 qrCode로 사용.
-  const res = await apiFetch<{ cartId: number; qrCode: string; status: string }>('/api/carts/connect', {
+  const res = await apiFetch<CartSessionResponse>('/api/carts/connect', {
     method: 'POST',
     body: JSON.stringify({ qrCode: trimmed }),
   });
-  return { cartId: res.qrCode };
+  return {
+    cartId: res.qrCode,
+    checkoutStatus: res.checkoutStatus ?? 'SHOPPING',
+    pendingOrder: res.pendingOrder ?? null,
+  };
 }
 
 /** 서버 장바구니 스냅샷 (백엔드 CartSnapshotResponse). SSE 스냅샷과 동일 형태. */
@@ -541,14 +607,40 @@ export interface CartSnapshotData {
   totalPrice: number;
 }
 
+/** GET /api/carts/current · POST /api/carts/connect 공통 응답(백엔드 CartConnectResponse). */
+interface CartSessionResponse {
+  cartId: number;
+  qrCode: string;
+  status: string;
+  connectionType: string;
+  snapshot: CartSnapshotData | null;
+  checkoutStatus?: CheckoutStatus;
+  pendingOrder?: PendingOrder | null;
+}
+
+/** 현재 연결된 카트 세션 — 장바구니 스냅샷 + 결제 진행 상태. */
+export interface CurrentCartSession {
+  cartId: string; // qrCode
+  snapshot: CartSnapshotData | null;
+  checkoutStatus: CheckoutStatus;
+  pendingOrder: PendingOrder | null;
+}
+
 /**
- * 현재 연결된 카트의 스냅샷을 조회한다. GET /api/carts/current → { …, snapshot } (미연결이면 204→null).
+ * 현재 연결된 카트를 조회한다. GET /api/carts/current (미연결이면 204→null).
  * SSE는 구독 시점의 현재 장바구니를 자동으로 내려주지 않으므로(연결 시 발행되는 cart-init은
  * 구독 이전이라 놓친다), (재)접속 때 이걸로 현재 장바구니를 동기화한다. (이슈 #14)
+ * 결제 대기 중이던 주문(pendingOrder)도 여기로 복구한다.
  */
-export async function fetchCurrentCart(): Promise<CartSnapshotData | null> {
-  const res = await apiFetch<{ snapshot: CartSnapshotData | null } | undefined>('/api/carts/current');
-  return res?.snapshot ?? null;
+export async function fetchCurrentCart(): Promise<CurrentCartSession | null> {
+  const res = await apiFetch<CartSessionResponse | undefined>('/api/carts/current');
+  if (!res) return null;
+  return {
+    cartId: res.qrCode,
+    snapshot: res.snapshot ?? null,
+    checkoutStatus: res.checkoutStatus ?? 'SHOPPING',
+    pendingOrder: res.pendingOrder ?? null,
+  };
 }
 
 /**
@@ -597,31 +689,110 @@ export async function removeCartItem(qrCode: string, barcode: string): Promise<v
 // 주문 생성은 상품 바코드가 아니라 백엔드 상품 id(Long)를 요구하므로, 결제 시
 // 장바구니 아이템(바코드)을 상품 id로 변환하기 위해 이 목록을 사용한다.
 
+/** 백엔드 상품 카테고리 코드(ProductCategory). 라벨은 GET /api/products/categories가 준다. */
+export type ApiProductCategory =
+  | 'DAIRY'
+  | 'BEVERAGE'
+  | 'SNACK'
+  | 'FROZEN'
+  | 'FRUIT'
+  | 'VEGETABLE'
+  | 'HOUSEHOLD'
+  | 'FOOD'
+  | 'FASHION_ACCESSORIES'
+  | 'DIGITAL_ELECTRONICS'
+  | 'TOYS_HOBBIES'
+  | 'KITCHENWARE'
+  | 'SPORTS_LEISURE'
+  | 'BEAUTY';
+
 export interface ApiProduct {
   id: number;
   barcode: string;
   name: string;
   price: number;
-  category: string;
+  category: ApiProductCategory;
   status: string; // ON_SALE 등
+  imageUrl: string | null; // 관리자가 올린 대표 이미지(MinIO). 없으면 null
 }
 
-/** 상품 목록 조회. GET /api/products → [{ id, barcode, name, price, category, status }] */
-export async function fetchProducts(): Promise<ApiProduct[]> {
-  return apiFetch<ApiProduct[]>('/api/products');
+/** 상품 정렬. 백엔드 ProductSortType — 예전 LATEST는 없어졌다(보내면 400). */
+export type ApiProductSort = 'NAME_ASC' | 'PRICE_ASC' | 'PRICE_DESC';
+
+/** GET /api/products 응답 — 배열이 아니라 슬라이스다. */
+export interface ApiProductSlice {
+  products: ApiProduct[];
+  page: number;
+  size: number;
+  hasNext: boolean;
+}
+
+export interface ProductQuery {
+  keyword?: string;
+  category?: ApiProductCategory;
+  sort?: ApiProductSort;
+  page?: number;
+  size?: number; // 백엔드 상한 100
+}
+
+/** 백엔드 size 상한(@Max(100))에 맞춘 페이지 크기. */
+const PRODUCT_PAGE_SIZE = 100;
+/** 전체 수집 시 안전장치 — hasNext가 계속 true여도 여기서 끊는다. */
+const PRODUCT_PAGE_LIMIT = 20;
+
+/**
+ * 상품 한 페이지 조회. GET /api/products?keyword&category&sort&page&size
+ * 로그인 없이 호출할 수 있다(백엔드에서 permitAll).
+ */
+export async function fetchProductSlice(query: ProductQuery = {}): Promise<ApiProductSlice> {
+  const params = new URLSearchParams();
+  const keyword = query.keyword?.trim();
+  if (keyword) params.set('keyword', keyword);
+  if (query.category) params.set('category', query.category);
+  if (query.sort) params.set('sort', query.sort);
+  params.set('page', String(query.page ?? 0));
+  params.set('size', String(query.size ?? PRODUCT_PAGE_SIZE));
+  return apiFetch<ApiProductSlice>(`/api/products?${params.toString()}`);
+}
+
+/**
+ * 상품 전체 조회 — 슬라이스를 hasNext가 끝날 때까지 이어붙인다.
+ * 카탈로그 병합과 결제(바코드→상품 id 변환)는 목록 전체가 필요해서 여기서 페이지를 모은다.
+ */
+export async function fetchProducts(query: Omit<ProductQuery, 'page'> = {}): Promise<ApiProduct[]> {
+  const size = query.size ?? PRODUCT_PAGE_SIZE;
+  const all: ApiProduct[] = [];
+  for (let page = 0; page < PRODUCT_PAGE_LIMIT; page += 1) {
+    const slice = await fetchProductSlice({ ...query, page, size });
+    all.push(...slice.products);
+    if (!slice.hasNext) break;
+  }
+  return all;
+}
+
+/** 카테고리 목록(코드 + 한글 라벨). GET /api/products/categories */
+export interface ApiProductCategoryOption {
+  code: ApiProductCategory;
+  name: string;
+}
+
+export async function fetchProductCategories(): Promise<ApiProductCategoryOption[]> {
+  return apiFetch<ApiProductCategoryOption[]>('/api/products/categories');
 }
 
 export type ApiProductStatus = 'ON_SALE' | 'SOLD_OUT';
 
 /**
  * 상품 등록(관리자). POST /api/admin/products { barcode, name, price, category, status } → ProductResponse
- * ROLE_ADMIN 필요. 바코드는 unique — 중복 시 서버가 에러를 반환한다.
+ * ROLE_ADMIN 필요. 카테고리는 자유 문자열이 아니라 ApiProductCategory 코드여야 한다(아니면 400).
+ * 바코드는 unique이고 영문·숫자·`.`·`_`·`-`만 쓸 수 있다(서버 @Pattern).
+ * 이미지는 이 API로 못 보낸다 — 등록 후 POST /api/admin/products/{barcode}/image 로 따로 올린다.
  */
 export async function adminCreateProduct(input: {
   barcode: string;
   name: string;
   price: number;
-  category: string;
+  category: ApiProductCategory;
   status: ApiProductStatus;
 }): Promise<ApiProduct> {
   return apiFetch<ApiProduct>('/api/admin/products', { method: 'POST', body: JSON.stringify(input) });
@@ -629,7 +800,7 @@ export async function adminCreateProduct(input: {
 
 /**
  * 상품 수정(관리자). PATCH /api/admin/products/{productId} → ProductResponse
- * 백엔드는 barcode·price·status만 수정 가능(이름·카테고리 변경 API 없음).
+ * 백엔드는 barcode·price·status만 수정 가능(이름·카테고리·이미지 변경 API 없음).
  */
 export async function adminUpdateProduct(
   productId: number,
@@ -745,6 +916,63 @@ export interface PaymentAttempt {
   amount: number;
 }
 
+/**
+ * 결제 대기 주문 포기. POST /api/orders/{orderId}/abandon → 204
+ * 주문이 EXPIRED로 바뀌고 READY 결제 시도도 취소되며, 잠겨 있던 카트가 다시 쇼핑 가능해진다.
+ * 이미 승인된 결제가 있으면 409(INVALID_PAYMENT_STATE).
+ */
+export async function abandonOrder(orderId: string): Promise<void> {
+  await apiFetch<void>(`/api/orders/${encodeURIComponent(orderId)}/abandon`, { method: 'POST' });
+}
+
+// ── 구매 내역(내 주문) ──────────────────────────────────────────────────
+// 결제가 끝난 주문만 보인다(PAID·CANCELED). 결제 대기/만료 주문은 목록에 없다.
+
+/** 구매 내역 한 줄 (백엔드 OrderHistoryItemResponse). */
+export interface PurchaseHistoryItem {
+  orderId: string;
+  orderName: string;
+  totalAmount: number;
+  purchasedAt: string; // ISO LocalDateTime
+  status: ApiOrderStatus;
+}
+
+/** 구매 내역 페이지 (백엔드 OrderHistoryResponse). page는 0부터. */
+export interface PurchaseHistoryPage {
+  orders: PurchaseHistoryItem[];
+  page: number;
+  size: number;
+  hasNext: boolean;
+}
+
+/** 구매 내역 조회. GET /api/orders/me?page=&size= (size 상한 100) */
+export async function fetchPurchaseHistory(
+  params: { page?: number; size?: number } = {},
+): Promise<PurchaseHistoryPage> {
+  const query = [`page=${params.page ?? 0}`, `size=${params.size ?? 20}`];
+  return apiFetch<PurchaseHistoryPage>(`/api/orders/me?${query.join('&')}`);
+}
+
+/** 구매 상세 (백엔드 OrderDetailResponse). */
+export interface PurchaseDetail {
+  orderId: string;
+  purchasedAt: string;
+  status: ApiOrderStatus;
+  totalAmount: number;
+  items: { productName: string; unitPrice: number; quantity: number; lineAmount: number }[];
+  payment: {
+    status: string; // APPROVED 등
+    method: string | null; // CARD 등
+    amount: number | null;
+    approvedAt: string | null;
+  };
+}
+
+/** 구매 상세 조회. GET /api/orders/me/{orderId} — 승인된 결제가 없는 주문은 409. */
+export async function fetchPurchaseDetail(orderId: string): Promise<PurchaseDetail> {
+  return apiFetch<PurchaseDetail>(`/api/orders/me/${encodeURIComponent(orderId)}`);
+}
+
 /** 결제 시도 생성. POST /api/orders/{orderId}/payment-attempts */
 export async function createPaymentAttempt(orderId: string): Promise<PaymentAttempt> {
   const r = await apiFetch<{ paymentAttemptId: string; orderId: string; orderName: string; amount: number }>(
@@ -765,6 +993,8 @@ export interface PaymentConfirmResult {
   paymentKey: string | null;
   approvedAmount: number | null;
   status: string; // APPROVED / FAILED 등
+  /** 출구 게이트 통과용 1회성 토큰(당일 자정 만료). 승인 성공일 때만 값이 있다. */
+  gateToken: string | null;
   code?: string | null;
   message?: string | null;
 }

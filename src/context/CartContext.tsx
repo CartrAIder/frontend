@@ -18,7 +18,7 @@ import {
 } from 'react';
 
 import { useCartSession } from '@/context/CartSessionContext';
-import { fetchCurrentCart, removeCartItem, setItemQty } from '@/lib/api';
+import { ApiError, fetchCurrentCart, removeCartItem, setItemQty } from '@/lib/api';
 import { loadCart, saveCart, type CartItem } from '@/lib/cartStorage';
 import { connectCartStream, type CartSnapshot, type CartStream } from '@/lib/sse';
 
@@ -127,7 +127,7 @@ const CartContext = createContext<CartContextValue | undefined>(undefined);
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, initialState);
-  const { cartId, isConnected, isRestoring: sessionRestoring } = useCartSession();
+  const { cartId, isConnected, isRestoring: sessionRestoring, refreshSession } = useCartSession();
   const itemsRef = useRef(state.items);
   itemsRef.current = state.items;
   const cartIdRef = useRef(cartId);
@@ -166,8 +166,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         // SSE는 구독 시점의 현재 장바구니를 내려주지 않으므로(cart-init은 구독 이전 발행),
         // (재)접속마다 현재 카트를 REST로 받아 반영한다. 오래된 version은 리듀서가 무시한다. (#14)
         fetchCurrentCart()
-          .then((snapshot) => {
-            if (snapshot) dispatch({ type: 'SNAPSHOT', snapshot });
+          .then((session) => {
+            if (session?.snapshot) dispatch({ type: 'SNAPSHOT', snapshot: session.snapshot });
           })
           .catch(() => {
             // 조회 실패는 무시 — 이후 SSE 스냅샷으로 정정된다.
@@ -202,31 +202,53 @@ export function CartProvider({ children }: { children: ReactNode }) {
     wasConnected.current = isConnected;
   }, [sessionRestoring, isConnected]);
 
+  /**
+   * 수량 변경·삭제가 서버에서 거절됐을 때 되돌린다.
+   * 낙관적 업데이트는 SSE 스냅샷이 정정해주지만, 서버가 거절한 요청은 아무 이벤트도
+   * 발행하지 않아 화면만 틀어진다. 그래서 실패하면 현재 카트를 다시 받아 맞춘다.
+   * 결제 대기로 잠긴 카트(409 CART_PAYMENT_PENDING)면 세션 상태도 갱신해 화면을 잠근다.
+   */
+  const revertOnFailure = useCallback(
+    (error: unknown) => {
+      if (error instanceof ApiError && error.code === 'CART_PAYMENT_PENDING') {
+        refreshSession();
+      }
+      fetchCurrentCart()
+        .then((session) => {
+          if (session?.snapshot) dispatch({ type: 'SNAPSHOT', snapshot: session.snapshot });
+        })
+        .catch(() => {
+          // 재조회까지 실패 — 다음 SSE 스냅샷을 기다린다.
+        });
+    },
+    [refreshSession],
+  );
+
   const increaseQty = useCallback((itemId: string) => {
     const item = itemsRef.current.find((i) => i.id === itemId);
     if (!item) return;
     const next = item.qty + 1;
     dispatch({ type: 'SET_QTY', itemId, qty: next }); // 낙관적, SSE 스냅샷이 최종 정정
-    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(() => {});
-  }, []);
+    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
+  }, [revertOnFailure]);
 
   const decreaseQty = useCallback((itemId: string) => {
     const item = itemsRef.current.find((i) => i.id === itemId);
     if (!item) return;
     if (item.qty <= 1) {
       dispatch({ type: 'REMOVE_ITEM', itemId });
-      if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(() => {});
+      if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(revertOnFailure);
       return;
     }
     const next = item.qty - 1;
     dispatch({ type: 'SET_QTY', itemId, qty: next });
-    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(() => {});
-  }, []);
+    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
+  }, [revertOnFailure]);
 
   const removeItem = useCallback((itemId: string) => {
     dispatch({ type: 'REMOVE_ITEM', itemId });
-    if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(() => {});
-  }, []);
+    if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(revertOnFailure);
+  }, [revertOnFailure]);
 
   const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
 
