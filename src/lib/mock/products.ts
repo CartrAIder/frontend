@@ -28,6 +28,8 @@ export interface Product {
   category?: string;
   /** 백엔드 판매 상태(ON_SALE / SOLD_OUT). */
   status?: string;
+  /** 백엔드가 준 상품 사진 주소(MinIO). 없으면 번들 사진/벡터 그림으로 그린다. */
+  imageUrl?: string | null;
 }
 
 export const DEFAULT_PRODUCTS: Product[] = [
