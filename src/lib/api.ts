@@ -56,7 +56,11 @@ function delay(ms: number): Promise<void> {
  * fetch + 타임아웃 + 네트워크 오류를 사용자 친화 메시지로 변환.
  * (서버가 꺼져있거나 와이파이가 끊기면 기본 fetch는 "Network request failed"를 던진다)
  */
-async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 10000,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -120,7 +124,11 @@ async function extractErrorMessage(res: Response): Promise<string> {
   return `요청에 실패했어요. (${res.status})`;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}, retrying = false): Promise<T> {
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+  retrying = false,
+): Promise<T> {
   const session = await loadMemberSession();
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
@@ -300,7 +308,10 @@ export async function loginMember(email: string, password: string): Promise<Auth
   });
   if (!res.ok) {
     // 401이면 백엔드 메시지, 그 외엔 일반 문구
-    const message = res.status === 401 ? await extractErrorMessage(res) : '로그인에 실패했어요. 잠시 후 다시 시도해주세요.';
+    const message =
+      res.status === 401
+        ? await extractErrorMessage(res)
+        : '로그인에 실패했어요. 잠시 후 다시 시도해주세요.';
     throw new Error(message);
   }
 
@@ -453,7 +464,10 @@ export async function sendPasswordResetCode(email: string): Promise<void> {
  * POST /api/auth/password-reset/confirm { email, code } → { resetToken, expiresIn }
  * 실패 예: 코드 불일치(400), 코드 만료·미발급(400).
  */
-export async function confirmPasswordResetCode(email: string, code: string): Promise<PasswordResetToken> {
+export async function confirmPasswordResetCode(
+  email: string,
+  code: string,
+): Promise<PasswordResetToken> {
   const normalized = email.trim().toLowerCase();
   const trimmedCode = code.trim();
   if (!/^\d{6}$/.test(trimmedCode)) {
@@ -494,20 +508,32 @@ export function isTokenExpired(token: string): boolean {
   }
 }
 
+/** RN·웹에는 atob이 있다. 없는 환경(node 스크립트 등)만 Buffer로 폴백한다. */
+type BufferGlobal = {
+  from(data: string, encoding: string): { toString(encoding: string): string };
+};
+
 /** JWT payload 디코드 (검증X, 표시용 정보 추출). RN/웹 공통(atob 없으면 Buffer). */
 function decodeJWT(token: string): { sub: string; email?: string; role?: string; exp?: number } {
   const payload = token.split('.')[1];
   const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-  const json =
-    typeof atob === 'function'
-      ? decodeURIComponent(
-          atob(base64)
-            .split('')
-            .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
-            .join(''),
-        )
-      : Buffer.from(base64, 'base64').toString('utf-8');
+  const json = typeof atob === 'function' ? decodeBase64(base64) : decodeBase64ViaBuffer(base64);
   return JSON.parse(json);
+}
+
+function decodeBase64(base64: string): string {
+  return decodeURIComponent(
+    atob(base64)
+      .split('')
+      .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+      .join(''),
+  );
+}
+
+function decodeBase64ViaBuffer(base64: string): string {
+  const buffer = (globalThis as { Buffer?: BufferGlobal }).Buffer;
+  if (!buffer) throw new Error('base64 디코딩을 지원하지 않는 환경입니다.');
+  return buffer.from(base64, 'base64').toString('utf-8');
 }
 
 /**
@@ -516,7 +542,10 @@ function decodeJWT(token: string): { sub: string; email?: string; role?: string;
  * POST /api/mobile/auth/password { currentPassword, newPassword } → MobileAuthResponse
  * 실패 예: 현재 비밀번호 불일치(400), 새 비밀번호 형식 위반(400 details).
  */
-export async function changePassword(currentPassword: string, newPassword: string): Promise<AuthResult> {
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<AuthResult> {
   if (!currentPassword || !newPassword) {
     throw new Error('현재 비밀번호와 새 비밀번호를 모두 입력해주세요.');
   }
@@ -665,10 +694,13 @@ export async function setItemQty(qrCode: string, barcode: string, quantity: numb
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ delta: quantity }),
-  });
+  await apiFetch<void>(
+    `/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ delta: quantity }),
+    },
+  );
 }
 
 /**
@@ -680,9 +712,12 @@ export async function removeCartItem(qrCode: string, barcode: string): Promise<v
     await delay(300);
     return;
   }
-  await apiFetch<void>(`/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`, {
-    method: 'DELETE',
-  });
+  await apiFetch<void>(
+    `/api/carts/${encodeURIComponent(qrCode)}/items/${encodeURIComponent(barcode)}`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 // ── 상품 카탈로그(백엔드) ────────────────────────────────────────────────
@@ -758,13 +793,22 @@ export async function fetchProductSlice(query: ProductQuery = {}): Promise<ApiPr
 /**
  * 상품 전체 조회 — 슬라이스를 hasNext가 끝날 때까지 이어붙인다.
  * 카탈로그 병합과 결제(바코드→상품 id 변환)는 목록 전체가 필요해서 여기서 페이지를 모은다.
+ *
+ * 페이지는 순서대로 받을 수밖에 없다(총 개수를 미리 알 수 없다). 대신 한 페이지가 도착할
+ * 때마다 `onPage`로 지금까지 모인 목록을 넘겨, 화면이 전량을 기다리지 않고 먼저 그릴 수
+ * 있게 한다. 상품이 100종을 넘어 왕복이 여러 번이 될 때 첫 화면 체감이 달라진다.
  */
-export async function fetchProducts(query: Omit<ProductQuery, 'page'> = {}): Promise<ApiProduct[]> {
+export async function fetchProducts(
+  query: Omit<ProductQuery, 'page'> = {},
+  onPage?: (productsSoFar: ApiProduct[]) => void,
+): Promise<ApiProduct[]> {
   const size = query.size ?? PRODUCT_PAGE_SIZE;
   const all: ApiProduct[] = [];
   for (let page = 0; page < PRODUCT_PAGE_LIMIT; page += 1) {
     const slice = await fetchProductSlice({ ...query, page, size });
     all.push(...slice.products);
+    // 마지막 페이지는 호출부가 반환값으로 받으므로 중간 페이지에서만 알린다.
+    if (slice.hasNext && page + 1 < PRODUCT_PAGE_LIMIT) onPage?.([...all]);
     if (!slice.hasNext) break;
   }
   return all;
@@ -795,7 +839,10 @@ export async function adminCreateProduct(input: {
   category: ApiProductCategory;
   status: ApiProductStatus;
 }): Promise<ApiProduct> {
-  return apiFetch<ApiProduct>('/api/admin/products', { method: 'POST', body: JSON.stringify(input) });
+  return apiFetch<ApiProduct>('/api/admin/products', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 /**
@@ -901,11 +948,16 @@ export interface OrderDraft {
 }
 
 /** 주문 생성. POST /api/orders { items:[{ productId, quantity }] } */
-export async function createOrder(items: { productId: number; quantity: number }[]): Promise<OrderDraft> {
-  const res = await apiFetch<{ id: number; orderId: string; orderName: string; totalAmount: number; status: string }>(
-    '/api/orders',
-    { method: 'POST', body: JSON.stringify({ items }) },
-  );
+export async function createOrder(
+  items: { productId: number; quantity: number }[],
+): Promise<OrderDraft> {
+  const res = await apiFetch<{
+    id: number;
+    orderId: string;
+    orderName: string;
+    totalAmount: number;
+    status: string;
+  }>('/api/orders', { method: 'POST', body: JSON.stringify({ items }) });
   return { orderId: res.orderId, orderName: res.orderName, totalAmount: res.totalAmount };
 }
 
@@ -975,11 +1027,18 @@ export async function fetchPurchaseDetail(orderId: string): Promise<PurchaseDeta
 
 /** 결제 시도 생성. POST /api/orders/{orderId}/payment-attempts */
 export async function createPaymentAttempt(orderId: string): Promise<PaymentAttempt> {
-  const r = await apiFetch<{ paymentAttemptId: string; orderId: string; orderName: string; amount: number }>(
-    `/api/orders/${encodeURIComponent(orderId)}/payment-attempts`,
-    { method: 'POST' },
-  );
-  return { paymentAttemptId: r.paymentAttemptId, orderId: r.orderId, orderName: r.orderName, amount: r.amount };
+  const r = await apiFetch<{
+    paymentAttemptId: string;
+    orderId: string;
+    orderName: string;
+    amount: number;
+  }>(`/api/orders/${encodeURIComponent(orderId)}/payment-attempts`, { method: 'POST' });
+  return {
+    paymentAttemptId: r.paymentAttemptId,
+    orderId: r.orderId,
+    orderName: r.orderName,
+    amount: r.amount,
+  };
 }
 
 /** 토스 클라이언트키(공개키) 조회 — 결제창 초기화용. GET /api/payments/client-key */

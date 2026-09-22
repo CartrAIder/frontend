@@ -1,14 +1,7 @@
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProductImage } from '@/components/ProductImage';
@@ -18,7 +11,11 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useCatalog, type ProductDraft } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
-import { fetchProductCategories, type ApiProductCategory, type ApiProductCategoryOption } from '@/lib/api';
+import {
+  fetchProductCategories,
+  type ApiProductCategory,
+  type ApiProductCategoryOption,
+} from '@/lib/api';
 import { categoryForZone } from '@/lib/catalog/overlay';
 import type { Product } from '@/lib/mock/products';
 
@@ -32,7 +29,6 @@ const FALLBACK_CATEGORIES: ApiProductCategoryOption[] = [
   { code: 'VEGETABLE', name: '채소' },
   { code: 'HOUSEHOLD', name: '생활용품' },
 ];
-
 
 /**
  * 상품 등록 / 수정 폼.
@@ -63,7 +59,9 @@ function ProductForm({ editing }: { editing?: Product }) {
   const [brand, setBrand] = useState(editing?.brand ?? '');
   const [price, setPrice] = useState(editing ? String(editing.unitPrice) : '');
   const [stock, setStock] = useState(editing ? String(editing.stock) : '0');
-  const [discount, setDiscount] = useState(editing?.discountPercent ? String(editing.discountPercent) : '');
+  const [discount, setDiscount] = useState(
+    editing?.discountPercent ? String(editing.discountPercent) : '',
+  );
   const [description, setDescription] = useState(editing?.description ?? '');
   // 대표 이미지는 상품명으로 자동 생성한다(ProductImage). icon 필드는 하위 호환용으로만 남긴다.
   const icon = editing?.icon ?? '';
@@ -107,7 +105,8 @@ function ProductForm({ editing }: { editing?: Product }) {
     if (!trimmedName) return setError('상품명을 입력해주세요.');
     if (!isEdit && !trimmedBarcode) return setError('바코드를 입력해주세요.');
     if (!parsedPrice || parsedPrice <= 0) return setError('판매 가격을 숫자로 입력해주세요.');
-    if (parsedDiscount < 0 || parsedDiscount > 90) return setError('할인율은 0~90 사이로 입력해주세요.');
+    if (parsedDiscount < 0 || parsedDiscount > 90)
+      return setError('할인율은 0~90 사이로 입력해주세요.');
     if (!zone) return setError('매장 구역을 선택해주세요.');
 
     const draft: ProductDraft = {
@@ -138,173 +137,213 @@ function ProductForm({ editing }: { editing?: Product }) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="상품 등록" />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} keyboardShouldPersistTaps="handled">
-          {/* 미리보기 */}
-          <Card style={styles.preview}>
-            <View style={[styles.previewThumb, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-              <ProductImage
-                id={editing?.id ?? name}
-                name={name}
-                zone={zone}
-                uri={editing?.imageUrl}
-                size={56}
-                radius={theme.imageRadius}
-              />
-            </View>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }} numberOfLines={1}>
-                {name.trim() || '상품명 미입력'}
-              </Text>
-              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }} numberOfLines={1}>
-                {brand.trim() || '브랜드 없음'} · {shelfZones.find((z) => z.id === zone)?.label ?? '구역 미선택'}
-              </Text>
-              <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>
-                ₩{(Number(price.replace(/[^0-9]/g, '')) || 0).toLocaleString('ko-KR')}
-              </Text>
-            </View>
-          </Card>
+      <KeyboardAwareScrollView
+        bottomOffset={24}
+        contentContainerStyle={{ padding: 20, gap: theme.spacing }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* 미리보기 */}
+        <Card style={styles.preview}>
+          <View
+            style={[
+              styles.previewThumb,
+              { backgroundColor: colors.surface, borderRadius: theme.radiusSm },
+            ]}
+          >
+            <ProductImage
+              id={editing?.id ?? name}
+              name={name}
+              zone={zone}
+              uri={editing?.imageUrl}
+              size={56}
+              radius={theme.imageRadius}
+            />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text
+              style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}
+              numberOfLines={1}
+            >
+              {name.trim() || '상품명 미입력'}
+            </Text>
+            <Text
+              style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}
+              numberOfLines={1}
+            >
+              {brand.trim() || '브랜드 없음'} ·{' '}
+              {shelfZones.find((z) => z.id === zone)?.label ?? '구역 미선택'}
+            </Text>
+            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>
+              ₩{(Number(price.replace(/[^0-9]/g, '')) || 0).toLocaleString('ko-KR')}
+            </Text>
+          </View>
+        </Card>
 
-          {/* 기본 정보 */}
-          <Card style={{ gap: theme.spacing }}>
-            <TextField label="상품명 *" value={name} onChangeText={setName} placeholder="예) 서울우유 1L" />
-            {isEdit ? (
-              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
-                바코드 {editing?.id} · 이름·카테고리는 서버에서 변경되지 않아요(가격·재고·표시만 반영).
-              </Text>
-            ) : (
-              <TextField
-                label="바코드 *"
-                value={barcode}
-                onChangeText={setBarcode}
-                placeholder="예) 8801234567999"
-                keyboardType="number-pad"
-              />
-            )}
-            <TextField label="브랜드" value={brand} onChangeText={setBrand} placeholder="예) 서울우유" />
+        {/* 기본 정보 */}
+        <Card style={{ gap: theme.spacing }}>
+          <TextField
+            label="상품명 *"
+            value={name}
+            onChangeText={setName}
+            placeholder="예) 서울우유 1L"
+          />
+          {isEdit ? (
+            <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+              바코드 {editing?.id} · 이름·카테고리는 서버에서 변경되지 않아요(가격·재고·표시만
+              반영).
+            </Text>
+          ) : (
             <TextField
-              label="판매 가격 (원) *"
-              value={price}
-              onChangeText={setPrice}
-              placeholder="2400"
+              label="바코드 *"
+              value={barcode}
+              onChangeText={setBarcode}
+              placeholder="예) 8801234567999"
               keyboardType="number-pad"
             />
-            <View style={styles.twoCol}>
-              <View style={{ flex: 1 }}>
-                <TextField label="재고 수량" value={stock} onChangeText={setStock} placeholder="0" keyboardType="number-pad" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <TextField
-                  label="할인율 (%)"
-                  value={discount}
-                  onChangeText={setDiscount}
-                  placeholder="없으면 비워두기"
-                  keyboardType="number-pad"
-                />
-              </View>
+          )}
+          <TextField
+            label="브랜드"
+            value={brand}
+            onChangeText={setBrand}
+            placeholder="예) 서울우유"
+          />
+          <TextField
+            label="판매 가격 (원) *"
+            value={price}
+            onChangeText={setPrice}
+            placeholder="2400"
+            keyboardType="number-pad"
+          />
+          <View style={styles.twoCol}>
+            <View style={{ flex: 1 }}>
+              <TextField
+                label="재고 수량"
+                value={stock}
+                onChangeText={setStock}
+                placeholder="0"
+                keyboardType="number-pad"
+              />
             </View>
-            <TextField
-              label="상품 설명"
-              value={description}
-              onChangeText={setDescription}
-              placeholder="상세 화면에 보여줄 한 줄 소개"
-              multiline
-              style={{ minHeight: 80, textAlignVertical: 'top' }}
-            />
-          </Card>
+            <View style={{ flex: 1 }}>
+              <TextField
+                label="할인율 (%)"
+                value={discount}
+                onChangeText={setDiscount}
+                placeholder="없으면 비워두기"
+                keyboardType="number-pad"
+              />
+            </View>
+          </View>
+          <TextField
+            label="상품 설명"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="상세 화면에 보여줄 한 줄 소개"
+            multiline
+            style={{ minHeight: 80, textAlignVertical: 'top' }}
+          />
+        </Card>
 
-          {/* 카테고리 (백엔드) — 등록할 때만 정할 수 있다. */}
-          {!isEdit ? (
-            <Card style={{ gap: 10 }}>
-              <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>카테고리 *</Text>
-              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
-                서버에 저장되는 분류예요. 등록 후에는 바꿀 수 없어요(백엔드에 수정 API가 없음).
-              </Text>
-              <View style={styles.categoryRow}>
-                {categories.map((c) => {
-                  const active = effectiveCategory === c.code;
-                  return (
-                    <Pressable
-                      key={c.code}
-                      onPress={() => setCategory(c.code)}
-                      style={[
-                        styles.categoryChip,
-                        {
-                          backgroundColor: active ? colors.primary : colors.surface,
-                          borderRadius: theme.radiusSm,
-                          minHeight: theme.minTouch - 8,
-                        },
-                      ]}
-                      accessibilityRole="button"
-                      accessibilityLabel={`카테고리 ${c.name}`}
-                    >
-                      <Text
-                        style={{
-                          fontSize: theme.fontBody - 3,
-                          color: active ? colors.primaryText : colors.textMuted,
-                          fontWeight: '700',
-                        }}
-                      >
-                        {c.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </Card>
-          ) : null}
-
-          {/* 매장 구역 */}
+        {/* 카테고리 (백엔드) — 등록할 때만 정할 수 있다. */}
+        {!isEdit ? (
           <Card style={{ gap: 10 }}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>매장 구역 *</Text>
-            <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
-              선택한 구역이 지도·길 안내의 목적지가 됩니다.
+            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>
+              카테고리 *
             </Text>
-            <View style={styles.zoneGrid}>
-              {shelfZones.map((z) => {
-                const active = zone === z.id;
+            <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+              서버에 저장되는 분류예요. 등록 후에는 바꿀 수 없어요(백엔드에 수정 API가 없음).
+            </Text>
+            <View style={styles.categoryRow}>
+              {categories.map((c) => {
+                const active = effectiveCategory === c.code;
                 return (
                   <Pressable
-                    key={z.id}
-                    onPress={() => setZone(z.id)}
+                    key={c.code}
+                    onPress={() => setCategory(c.code)}
                     style={[
-                      styles.zoneChip,
+                      styles.categoryChip,
                       {
-                        backgroundColor: active ? colors.primary : z.color,
-                        borderColor: active ? colors.primary : colors.border,
+                        backgroundColor: active ? colors.primary : colors.surface,
                         borderRadius: theme.radiusSm,
-                        minHeight: theme.minTouch,
+                        minHeight: theme.minTouch - 8,
                       },
                     ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`카테고리 ${c.name}`}
                   >
-                    <Text style={{ fontSize: 18 }}>{z.icon}</Text>
                     <Text
                       style={{
                         fontSize: theme.fontBody - 3,
-                        color: active ? colors.primaryText : '#1F2937',
+                        color: active ? colors.primaryText : colors.textMuted,
                         fontWeight: '700',
                       }}
-                      numberOfLines={1}
                     >
-                      {z.label}
+                      {c.name}
                     </Text>
                   </Pressable>
                 );
               })}
             </View>
           </Card>
+        ) : null}
 
-          {error && <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger }}>{error}</Text>}
+        {/* 매장 구역 */}
+        <Card style={{ gap: 10 }}>
+          <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>
+            매장 구역 *
+          </Text>
+          <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+            선택한 구역이 지도·길 안내의 목적지가 됩니다.
+          </Text>
+          <View style={styles.zoneGrid}>
+            {shelfZones.map((z) => {
+              const active = zone === z.id;
+              return (
+                <Pressable
+                  key={z.id}
+                  onPress={() => setZone(z.id)}
+                  style={[
+                    styles.zoneChip,
+                    {
+                      backgroundColor: active ? colors.primary : z.color,
+                      borderColor: active ? colors.primary : colors.border,
+                      borderRadius: theme.radiusSm,
+                      minHeight: theme.minTouch,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 18 }}>{z.icon}</Text>
+                  <Text
+                    style={{
+                      fontSize: theme.fontBody - 3,
+                      color: active ? colors.primaryText : '#1F2937',
+                      fontWeight: '700',
+                    }}
+                    numberOfLines={1}
+                  >
+                    {z.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Card>
 
-          <PrimaryButton
-            title={isEdit ? '수정 저장' : '상품 등록'}
-            onPress={handleSave}
-            loading={submitting}
-          />
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {error && (
+          <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger }}>{error}</Text>
+        )}
+
+        <PrimaryButton
+          title={isEdit ? '수정 저장' : '상품 등록'}
+          onPress={handleSave}
+          loading={submitting}
+        />
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

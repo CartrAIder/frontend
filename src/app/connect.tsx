@@ -1,7 +1,9 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BrandLoaderOverlay } from '@/components/BrandLoader';
@@ -51,9 +53,18 @@ export default function CartConnectScreen() {
     setError(null);
     try {
       await connect(rawCode);
+      // QR을 카메라로 맞추는 동안은 화면을 보고 있지 않을 수 있어 진동으로 성공을 알린다.
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
       router.replace('/cart');
     } catch (e) {
-      setError(e instanceof Error ? e.message: '연결에 실패했어요. 코드를 확인하고 다시 시도해주세요.');
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      }
+      setError(
+        e instanceof Error ? e.message : '연결에 실패했어요. 코드를 확인하고 다시 시도해주세요.',
+      );
       setScanned(false);
       setConnecting(false);
     }
@@ -66,83 +77,118 @@ export default function CartConnectScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="카트 연결" />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          contentContainerStyle={styles.body}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={{ gap: 6, alignItems: 'center' }}>
-            <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.text }]}>카트 연결하기</Text>
-            <Text style={[styles.desc, { fontSize: theme.fontBody, color: colors.textMuted }]}>
-              {manualMode ? '카트에 적힌 코드를 입력해주세요' : '카트에 붙어있는 QR코드를 스캔해주세요'}
-            </Text>
-          </View>
+      <KeyboardAwareScrollView
+        bottomOffset={24}
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={{ gap: 6, alignItems: 'center' }}>
+          <Text style={[styles.title, { fontSize: theme.fontTitle, color: colors.text }]}>
+            카트 연결하기
+          </Text>
+          <Text style={[styles.desc, { fontSize: theme.fontBody, color: colors.textMuted }]}>
+            {manualMode
+              ? '카트에 적힌 코드를 입력해주세요'
+              : '카트에 붙어있는 QR코드를 스캔해주세요'}
+          </Text>
+        </View>
 
-          {/* 직접 입력 모드에서는 카메라 박스를 숨겨 입력창이 키보드에 가리지 않게 한다. */}
-          {!manualMode && (
-            <View style={[styles.qrBox, { borderRadius: theme.radius, backgroundColor: '#0B1220' }]}>
-              {permission?.granted ? (
-                <>
-                  <CameraView
-                    style={StyleSheet.absoluteFill}
-                    facing="back"
-                    barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-                    onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
-                  />
-                  <ScanCorners color="#FFFFFF" />
-                </>
-              ) : (
-                <View style={[styles.cameraFallback, { gap: theme.spacing }]}>
-                  <Text style={{ fontSize: theme.fontBody, color: '#E5E7EB', textAlign: 'center' }}>
-                    카트 QR을 스캔하려면{'\n'}카메라 권한이 필요해요
+        {/* 직접 입력 모드에서는 카메라 박스를 숨겨 입력창이 키보드에 가리지 않게 한다. */}
+        {!manualMode && (
+          <View style={[styles.qrBox, { borderRadius: theme.radius, backgroundColor: '#0B1220' }]}>
+            {permission?.granted ? (
+              <>
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+                />
+                <ScanCorners color="#FFFFFF" />
+              </>
+            ) : (
+              <View style={[styles.cameraFallback, { gap: theme.spacing }]}>
+                <Text style={{ fontSize: theme.fontBody, color: '#E5E7EB', textAlign: 'center' }}>
+                  카트 QR을 스캔하려면{'\n'}카메라 권한이 필요해요
+                </Text>
+                <Pressable
+                  onPress={requestPermission}
+                  style={[
+                    styles.permButton,
+                    {
+                      borderColor: '#FFFFFF',
+                      minHeight: theme.minTouch,
+                      borderRadius: theme.radiusSm,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: theme.fontButton, color: '#FFFFFF', fontWeight: '600' }}>
+                    카메라 권한 허용
                   </Text>
-                  <Pressable
-                    onPress={requestPermission}
-                    style={[styles.permButton, { borderColor: '#FFFFFF', minHeight: theme.minTouch, borderRadius: theme.radiusSm }]}
-                  >
-                    <Text style={{ fontSize: theme.fontButton, color: '#FFFFFF', fontWeight: '600' }}>카메라 권한 허용</Text>
-                  </Pressable>
-                  <ScanCorners color="#4B5563" />
-                </View>
-              )}
-            </View>
-          )}
+                </Pressable>
+                <ScanCorners color="#4B5563" />
+              </View>
+            )}
+          </View>
+        )}
 
-          {manualMode ? (
-            <View style={{ gap: theme.spacing }}>
-              <TextField
-                value={code}
-                onChangeText={setCode}
-                placeholder="카트 코드 입력 (예: cart_001)"
-                autoCapitalize="none" // 대문자화 방지
-                autoCorrect={false}
-                autoFocus
-              />
-              <PrimaryButton title="연결하기" onPress={() => handleConnect(code)} loading={connecting} />
-              <Pressable onPress={() => setManualMode(false)} disabled={connecting} hitSlop={8} style={styles.linkRow}>
-                <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>QR 스캔으로 돌아가기</Text>
-              </Pressable>
-            </View>
-          ) : (
+        {manualMode ? (
+          <View style={{ gap: theme.spacing }}>
+            <TextField
+              value={code}
+              onChangeText={setCode}
+              placeholder="카트 코드 입력 (예: cart_001)"
+              autoCapitalize="none" // 대문자화 방지
+              autoCorrect={false}
+              autoFocus
+            />
+            <PrimaryButton
+              title="연결하기"
+              onPress={() => handleConnect(code)}
+              loading={connecting}
+            />
             <Pressable
-              onPress={() => setManualMode(true)}
-              style={[styles.secondaryButton, { backgroundColor: colors.primarySurface, minHeight: theme.minTouch, borderRadius: theme.radiusSm }]}
+              onPress={() => setManualMode(false)}
+              disabled={connecting}
+              hitSlop={8}
+              style={styles.linkRow}
             >
-              <Icon name="grid" size={theme.fontButton} color={colors.primary} />
-              <Text style={{ fontSize: theme.fontButton, color: colors.primary, fontWeight: '700' }}>
-                직접 코드 입력하기
+              <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>
+                QR 스캔으로 돌아가기
               </Text>
             </Pressable>
-          )}
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => setManualMode(true)}
+            style={[
+              styles.secondaryButton,
+              {
+                backgroundColor: colors.primarySurface,
+                minHeight: theme.minTouch,
+                borderRadius: theme.radiusSm,
+              },
+            ]}
+          >
+            <Icon name="grid" size={theme.fontButton} color={colors.primary} />
+            <Text style={{ fontSize: theme.fontButton, color: colors.primary, fontWeight: '700' }}>
+              직접 코드 입력하기
+            </Text>
+          </Pressable>
+        )}
 
-          {error && (
-            <Text style={{ fontSize: theme.fontBody, color: colors.danger, textAlign: 'center' }}>{error}</Text>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {error && (
+          <Text style={{ fontSize: theme.fontBody, color: colors.danger, textAlign: 'center' }}>
+            {error}
+          </Text>
+        )}
+      </KeyboardAwareScrollView>
 
       <BrandLoaderOverlay visible={connecting} message="카트에 연결하는 중이에요" />
     </SafeAreaView>
@@ -151,7 +197,13 @@ export default function CartConnectScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  body: { flexGrow: 1, justifyContent: 'center', gap: 20, paddingHorizontal: 20, paddingVertical: 8 },
+  body: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    gap: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
   title: { fontWeight: '800', textAlign: 'center' },
   desc: { textAlign: 'center', lineHeight: 24 },
   qrBox: {
@@ -169,11 +221,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-  secondaryButton: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 14 },
+  secondaryButton: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
   linkRow: { alignItems: 'center', paddingVertical: 8 },
   corner: { position: 'absolute', width: 34, height: 34 },
   cornerTL: { top: 18, left: 18, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 10 },
-  cornerTR: { top: 18, right: 18, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 10 },
-  cornerBL: { bottom: 18, left: 18, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 10 },
-  cornerBR: { bottom: 18, right: 18, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 10 },
+  cornerTR: {
+    top: 18,
+    right: 18,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 10,
+  },
+  cornerBL: {
+    bottom: 18,
+    left: 18,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 10,
+  },
+  cornerBR: {
+    bottom: 18,
+    right: 18,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 10,
+  },
 });

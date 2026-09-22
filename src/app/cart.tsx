@@ -1,8 +1,16 @@
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  FadeOutUp,
+  LinearTransition,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AnimatedWon } from '@/components/AnimatedWon';
 import { BrandRefreshLoader } from '@/components/BrandLoader';
 import { useBrandRefresh } from '@/components/BrandRefresh';
 import { ListRowSkeleton } from '@/components/Skeleton';
@@ -40,7 +48,10 @@ export default function CartScreen() {
   const [abandoning, setAbandoning] = useState(false);
   // 카트는 서버 세션(결제 대기 여부)과 상품 카탈로그를 함께 다시 맞춘다.
   const { refreshing, refreshControl } = useBrandRefresh(
-    useCallback(() => Promise.all([refreshSession(), refreshCatalog()]), [refreshSession, refreshCatalog]),
+    useCallback(
+      () => Promise.all([refreshSession(), refreshCatalog()]),
+      [refreshSession, refreshCatalog],
+    ),
   );
   // 결제 대기 중이면 서버가 카트를 잠근다 — 수량 변경·삭제·반납·스캔이 모두 거절된다.
   const locked = checkoutStatus === 'PAYMENT_PENDING';
@@ -48,6 +59,11 @@ export default function CartScreen() {
   useEffect(() => {
     if (!cart.lastScanned) return undefined;
     setBannerVisible(true);
+    // 카트는 주머니에 넣고 다니는 물건이 아니라 밀고 다니는 것이라, 화면을 안 보고 있을 때가
+    // 많다. 짧은 진동이 "방금 담겼다"를 가장 확실하게 알린다. (웹은 햅틱이 없다)
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     // 노약자 모드: 화면을 보지 않아도 담긴 걸 알 수 있게 음성으로 안내한다.
     if (theme.voiceGuide) {
       const { name, qty } = cart.lastScanned;
@@ -95,7 +111,10 @@ export default function CartScreen() {
   const empty = cart.items.length === 0;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <TabTransition>
         <AppBar
           title="장바구니"
@@ -103,7 +122,15 @@ export default function CartScreen() {
           right={
             cart.items.length > 0 && !locked ? (
               <Pressable onPress={handleReturnCart} hitSlop={8} accessibilityLabel="카트 반납">
-                <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>반납</Text>
+                <Text
+                  style={{
+                    fontSize: theme.fontBody - 2,
+                    color: colors.textMuted,
+                    fontWeight: '600',
+                  }}
+                >
+                  반납
+                </Text>
               </Pressable>
             ) : null
           }
@@ -114,11 +141,26 @@ export default function CartScreen() {
           <View
             style={[
               styles.statusPill,
-              { backgroundColor: isLive ? colors.successSurface : colors.surface, borderRadius: theme.radiusSm },
+              {
+                backgroundColor: isLive ? colors.successSurface : colors.surface,
+                borderRadius: theme.radiusSm,
+              },
             ]}
           >
-            <View style={[styles.statusDot, { backgroundColor: isLive ? colors.success : colors.textMuted }]} />
-            <Text style={{ flex: 1, fontSize: theme.fontBody - 3, color: colors.text, fontWeight: '600' }}>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: isLive ? colors.success : colors.textMuted },
+              ]}
+            />
+            <Text
+              style={{
+                flex: 1,
+                fontSize: theme.fontBody - 3,
+                color: colors.text,
+                fontWeight: '600',
+              }}
+            >
               {isLive
                 ? `${cartId} 연결됨 · 담으면 바로 반영돼요`
                 : cart.connectionStatus === 'connecting'
@@ -127,7 +169,11 @@ export default function CartScreen() {
             </Text>
             {!isLive ? (
               <Pressable onPress={() => router.push('/connect')} hitSlop={8}>
-                <Text style={{ fontSize: theme.fontBody - 3, color: colors.primary, fontWeight: '800' }}>연결</Text>
+                <Text
+                  style={{ fontSize: theme.fontBody - 3, color: colors.primary, fontWeight: '800' }}
+                >
+                  연결
+                </Text>
               </Pressable>
             ) : null}
           </View>
@@ -136,8 +182,19 @@ export default function CartScreen() {
         {/* 결제 대기 배너 — 앱을 껐다 켜도 서버(pendingOrder)에서 복구된다. */}
         {locked && pendingOrder ? (
           <View style={{ paddingHorizontal: GUTTER, paddingBottom: 10 }}>
-            <View style={[styles.pendingBox, { backgroundColor: colors.warningSurface, borderRadius: theme.radiusSm }]}>
-              <Text style={{ fontSize: theme.fontBody - 2, color: colors.warningText, fontWeight: '700' }}>
+            <View
+              style={[
+                styles.pendingBox,
+                { backgroundColor: colors.warningSurface, borderRadius: theme.radiusSm },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: theme.fontBody - 2,
+                  color: colors.warningText,
+                  fontWeight: '700',
+                }}
+              >
                 결제가 진행 중이에요
               </Text>
               <Text style={{ fontSize: theme.fontBody - 3, color: colors.warningText }}>
@@ -152,7 +209,13 @@ export default function CartScreen() {
                   style={{ minHeight: theme.minTouch, justifyContent: 'center' }}
                   accessibilityLabel="결제 포기"
                 >
-                  <Text style={{ fontSize: theme.fontBody - 2, color: colors.danger, fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      fontSize: theme.fontBody - 2,
+                      color: colors.danger,
+                      fontWeight: '700',
+                    }}
+                  >
                     {abandoning ? '취소하는 중…' : '결제 포기'}
                   </Text>
                 </Pressable>
@@ -162,7 +225,13 @@ export default function CartScreen() {
                   style={{ minHeight: theme.minTouch, justifyContent: 'center' }}
                   accessibilityLabel="이어서 결제"
                 >
-                  <Text style={{ fontSize: theme.fontBody - 2, color: colors.primary, fontWeight: '800' }}>
+                  <Text
+                    style={{
+                      fontSize: theme.fontBody - 2,
+                      color: colors.primary,
+                      fontWeight: '800',
+                    }}
+                  >
                     이어서 결제
                   </Text>
                 </Pressable>
@@ -172,7 +241,10 @@ export default function CartScreen() {
         ) : null}
 
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: GUTTER, paddingBottom: bottomPad + (empty ? 0 : 130) }}
+          contentContainerStyle={{
+            paddingHorizontal: GUTTER,
+            paddingBottom: bottomPad + (empty ? 0 : 130),
+          }}
           showsVerticalScrollIndicator={false}
           refreshControl={refreshControl}
         >
@@ -189,7 +261,11 @@ export default function CartScreen() {
               description={'카트에 상품을 넣으면\n여기에 실시간으로 나타나요'}
               action={
                 <View style={{ marginTop: 10, alignSelf: 'stretch', paddingHorizontal: 30 }}>
-                  <PrimaryButton title="상품 둘러보기" variant="neutral" onPress={() => router.replace('/products')} />
+                  <PrimaryButton
+                    title="상품 둘러보기"
+                    variant="neutral"
+                    onPress={() => router.replace('/products')}
+                  />
                 </View>
               }
             />
@@ -198,8 +274,14 @@ export default function CartScreen() {
               {cart.items.map((item, index) => {
                 const catalog = findProduct(item.id);
                 return (
-                  <View key={item.id}>
-                    {index > 0 ? <View style={[styles.rowDivider, { backgroundColor: colors.border }]} /> : null}
+                  <Animated.View
+                    key={item.id}
+                    entering={FadeInDown.springify().damping(18)}
+                    layout={LinearTransition.duration(220)}
+                  >
+                    {index > 0 ? (
+                      <View style={[styles.rowDivider, { backgroundColor: colors.border }]} />
+                    ) : null}
                     <View style={styles.itemRow}>
                       <ProductImage
                         id={item.id}
@@ -211,7 +293,11 @@ export default function CartScreen() {
                       />
                       <View style={{ flex: 1, gap: 4 }}>
                         <Text
-                          style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}
+                          style={{
+                            fontSize: theme.fontBody,
+                            color: colors.text,
+                            fontWeight: '600',
+                          }}
                           numberOfLines={2}
                         >
                           {item.name}
@@ -220,14 +306,24 @@ export default function CartScreen() {
                           개당 {formatWon(item.unitPrice)}
                         </Text>
                         <View style={styles.itemBottom}>
-                          <Text style={{ fontSize: theme.fontBody + 1, color: colors.text, fontWeight: '800' }}>
+                          <Text
+                            style={{
+                              fontSize: theme.fontBody + 1,
+                              color: colors.text,
+                              fontWeight: '800',
+                            }}
+                          >
                             {formatWon(item.unitPrice * item.qty)}
                           </Text>
                           <View style={{ flex: 1 }} />
                           <QuantityStepper
                             quantity={item.qty}
                             disabled={locked}
-                            onChange={(next) => (next > item.qty ? cart.increaseQty(item.id) : cart.decreaseQty(item.id))}
+                            onChange={(next) =>
+                              next > item.qty
+                                ? cart.increaseQty(item.id)
+                                : cart.decreaseQty(item.id)
+                            }
                           />
                           <Pressable
                             onPress={() => cart.removeItem(item.id)}
@@ -241,7 +337,7 @@ export default function CartScreen() {
                         </View>
                       </View>
                     </View>
-                  </View>
+                  </Animated.View>
                 );
               })}
             </View>
@@ -250,12 +346,19 @@ export default function CartScreen() {
 
         {/* 방금 담김 토스트 */}
         {bannerVisible && cart.lastScanned ? (
-          <View style={[styles.toast, { bottom: tabBarTotal + 130, backgroundColor: colors.text }]}>
+          <Animated.View
+            entering={FadeInUp.springify().damping(16)}
+            exiting={FadeOutUp.duration(180)}
+            style={[styles.toast, { bottom: tabBarTotal + 130, backgroundColor: colors.text }]}
+          >
             <Icon name="check" size={16} color="#FFFFFF" strokeWidth={3} />
-            <Text style={{ flex: 1, fontSize: theme.fontBody - 2, color: '#FFFFFF', fontWeight: '600' }} numberOfLines={1}>
+            <Text
+              style={{ flex: 1, fontSize: theme.fontBody - 2, color: '#FFFFFF', fontWeight: '600' }}
+              numberOfLines={1}
+            >
               {cart.lastScanned.name} × {cart.lastScanned.qty} 담겼어요
             </Text>
-          </View>
+          </Animated.View>
         ) : null}
 
         {/* 결제 요약 (고정) */}
@@ -271,9 +374,10 @@ export default function CartScreen() {
                 상품 {cart.itemCount}종 · {cart.totalQty}개
               </Text>
               <View style={{ flex: 1 }} />
-              <Text style={{ fontSize: theme.fontAmount, color: colors.text, fontWeight: '800' }}>
-                {formatWon(cart.total)}
-              </Text>
+              <AnimatedWon
+                value={cart.total}
+                style={{ fontSize: theme.fontAmount, color: colors.text, fontWeight: '800' }}
+              />
             </View>
             <PrimaryButton
               title={locked ? '이어서 결제하기' : `${formatWon(cart.total)} 결제하기`}
@@ -291,10 +395,21 @@ export default function CartScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  statusPill: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 14 },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   pendingBox: { gap: 6, paddingVertical: 12, paddingHorizontal: 14 },
-  pendingActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  pendingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14 },
   itemBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   rowDivider: { height: StyleSheet.hairlineWidth },

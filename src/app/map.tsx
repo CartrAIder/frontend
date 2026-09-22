@@ -8,6 +8,7 @@ import { AppBar } from '@/components/AppBar';
 import { BrandRefreshLoader } from '@/components/BrandLoader';
 import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
+import { InfoRowsSkeleton } from '@/components/Skeleton';
 import { StoreMap } from '@/components/StoreMap';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
@@ -20,7 +21,7 @@ export default function MapScreen() {
   const theme = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  const { zones, shelfZones, findZone, productsInZone, refresh } = useCatalog();
+  const { zones, shelfZones, findZone, productsInZone, refresh, isRestoring } = useCatalog();
   const { refreshing, refreshControl } = useBrandRefresh(refresh);
 
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
@@ -28,9 +29,15 @@ export default function MapScreen() {
   const zoneProducts = selectedZoneId ? productsInZone(selectedZoneId) : [];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="매장 지도" />
-      <ScrollView contentContainerStyle={{ padding: 20, gap: theme.spacing }} refreshControl={refreshControl}>
+      <ScrollView
+        contentContainerStyle={{ padding: 20, gap: theme.spacing }}
+        refreshControl={refreshControl}
+      >
         <BrandRefreshLoader visible={refreshing} />
 
         <Card style={{ gap: 10 }}>
@@ -50,7 +57,14 @@ export default function MapScreen() {
 
         {/* 구역 목록 (지도 탭 대신 리스트로도 고를 수 있게) */}
         <View style={{ gap: 8 }}>
-          <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, fontWeight: '700', marginLeft: 4 }}>
+          <Text
+            style={{
+              fontSize: theme.fontBody,
+              color: colors.textMuted,
+              fontWeight: '700',
+              marginLeft: 4,
+            }}
+          >
             매장 구역
           </Text>
           <View style={styles.zoneGrid}>
@@ -104,12 +118,19 @@ export default function MapScreen() {
               <Text style={{ fontSize: theme.fontButton, color: colors.text, fontWeight: '800' }}>
                 {selectedZone.label}
               </Text>
-              <Pressable onPress={() => setSelectedZoneId(null)} hitSlop={10} accessibilityLabel="닫기">
+              <Pressable
+                onPress={() => setSelectedZoneId(null)}
+                hitSlop={10}
+                accessibilityLabel="닫기"
+              >
                 <Icon name="close" size={theme.fontBody + 2} color={colors.textMuted} />
               </Pressable>
             </View>
 
-            {zoneProducts.length === 0 ? (
+            {isRestoring && zoneProducts.length === 0 ? (
+              // 복원 중에는 "없다"고 단정하지 않는다 — 잠시 뒤 채워질 자리다.
+              <InfoRowsSkeleton count={3} />
+            ) : zoneProducts.length === 0 ? (
               <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted }}>
                 아직 이 구역에 등록된 상품이 없어요.
               </Text>
@@ -121,13 +142,31 @@ export default function MapScreen() {
                   style={[styles.productRow, { minHeight: theme.minTouch }]}
                 >
                   <Text style={{ fontSize: 22 }}>{product.icon}</Text>
-                  <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }} numberOfLines={1}>
+                  <Text
+                    style={{
+                      flex: 1,
+                      fontSize: theme.fontBody,
+                      color: colors.text,
+                      fontWeight: '600',
+                    }}
+                    numberOfLines={1}
+                  >
                     {product.name}
                   </Text>
                   {product.stock === 0 && (
-                    <Text style={{ fontSize: theme.fontBody - 5, color: colors.textMuted, fontWeight: '700' }}>품절</Text>
+                    <Text
+                      style={{
+                        fontSize: theme.fontBody - 5,
+                        color: colors.textMuted,
+                        fontWeight: '700',
+                      }}
+                    >
+                      품절
+                    </Text>
                   )}
-                  <Text style={{ fontSize: theme.fontBody - 1, color: colors.text, fontWeight: '700' }}>
+                  <Text
+                    style={{ fontSize: theme.fontBody - 1, color: colors.text, fontWeight: '700' }}
+                  >
                     ₩{salePrice(product).toLocaleString('ko-KR')}
                   </Text>
                   <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>›</Text>
@@ -136,7 +175,6 @@ export default function MapScreen() {
             )}
           </Card>
         )}
-
       </ScrollView>
     </SafeAreaView>
   );

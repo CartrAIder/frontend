@@ -29,7 +29,13 @@ interface TabItem {
 
 const TABS: TabItem[] = [
   { key: 'home', label: '홈', icon: 'home', href: '/home', match: ['/home'] },
-  { key: 'category', label: '카테고리', icon: 'grid', href: '/products', match: ['/products', '/product'] },
+  {
+    key: 'category',
+    label: '카테고리',
+    icon: 'grid',
+    href: '/products',
+    match: ['/products', '/product'],
+  },
   { key: 'cart', label: '장바구니', icon: 'cart', href: '/cart', match: ['/cart'] },
   { key: 'my', label: '마이', icon: 'user', href: '/mypage', match: ['/mypage'] },
 ];
@@ -49,7 +55,8 @@ export function BottomTabBar() {
   const insets = useSafeAreaInsets();
   const { totalQty } = useCart();
 
-  const isActive = (tab: TabItem) => tab.match.some((m) => pathname === m || pathname.startsWith(`${m}/`));
+  const isActive = (tab: TabItem) =>
+    tab.match.some((m) => pathname === m || pathname.startsWith(`${m}/`));
 
   /**
    * 탭 이동. 이미 그 탭이면 아무것도 하지 않고, 아니면 탭 순서 기준으로
@@ -87,6 +94,7 @@ export function BottomTabBar() {
       <Pressable
         onPress={() => router.push('/connect')}
         style={styles.scanSlot}
+        android_ripple={{ color: colors.ripple, borderless: true, radius: 40 }}
         accessibilityRole="button"
         accessibilityLabel="카트 QR 스캔"
       >
@@ -94,12 +102,23 @@ export function BottomTabBar() {
           style={[
             styles.scanButton,
             theme.shadowCard,
-            { backgroundColor: colors.primary, width: theme.minTouch + 12, height: theme.minTouch + 12 },
+            {
+              backgroundColor: colors.primary,
+              width: theme.minTouch + 12,
+              height: theme.minTouch + 12,
+            },
           ]}
         >
-          <Icon name="scan" size={theme.minTouch - 18} color={colors.primaryText} strokeWidth={2.2} />
+          <Icon
+            name="scan"
+            size={theme.minTouch - 18}
+            color={colors.primaryText}
+            strokeWidth={2.2}
+          />
         </View>
-        <Text style={{ fontSize: theme.fontBody - 6, color: colors.primary, fontWeight: '800' }}>스캔</Text>
+        <Text style={{ fontSize: theme.fontBody - 6, color: colors.primary, fontWeight: '800' }}>
+          스캔
+        </Text>
       </Pressable>
 
       {right.map((tab) => (
@@ -134,19 +153,28 @@ function TabButton({
     <Pressable
       onPress={onPress}
       style={styles.tab}
+      android_ripple={{ color: colors.ripple, borderless: true, radius: 36 }}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       accessibilityLabel={tab.label}
     >
       <View>
-        <Icon name={tab.icon} size={theme.fontBody + 8} color={tint} filled={active} strokeWidth={active ? 2.3 : 2} />
+        <Icon
+          name={tab.icon}
+          size={theme.fontBody + 8}
+          color={tint}
+          filled={active}
+          strokeWidth={active ? 2.3 : 2}
+        />
         {badge > 0 ? (
           <View style={[styles.badge, { backgroundColor: colors.discount }]}>
             <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
           </View>
         ) : null}
       </View>
-      <Text style={{ fontSize: theme.fontBody - 6, color: tint, fontWeight: active ? '800' : '600' }}>
+      <Text
+        style={{ fontSize: theme.fontBody - 6, color: tint, fontWeight: active ? '800' : '600' }}
+      >
         {tab.label}
       </Text>
     </Pressable>

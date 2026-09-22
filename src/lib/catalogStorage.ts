@@ -1,26 +1,29 @@
 /**
- * secure-store 기반 매장 카탈로그 로컬 레이어 저장소.
+ * 매장 카탈로그 로컬 레이어 저장소 (async-storage).
  *
  * 하이브리드: 상품 자체는 백엔드(GET /api/products)가 진실원천이고, 여기에는
  * 앱 표현 레이어만 보관한다 — 관리자 편집/로컬추가/삭제 오버레이(barcode 기준),
  * 매장 구역(zones, 앱 로컬), 그리고 오프라인 즉시표시용 마지막 상품 캐시(cachedProducts).
  *
- * secure-store는 값 하나가 2048바이트를 넘으면 경고와 함께 저장에 실패할 수 있어
- * (Android), JSON을 청크로 쪼개 여러 키에 나눠 저장한다. 청크 개수는 인덱스 키에
- * 기록해 두고 읽을 때 이어 붙인다.
+ * secure-store를 쓰지 않는 이유: 여기 담기는 건 상품명·가격·매대 배치라 민감정보가 아닌데,
+ * secure-store는 값 하나가 2048바이트를 넘으면 저장이 깨져 JSON을 600B 청크로 쪼개
+ * 십수 개 키에 나눠 넣어야 했다. 키 하나하나가 안드로이드 Keystore 암복호화라
+ * 저장·복원마다 비용이 컸다. async-storage는 크기 제한이 사실상 없어 한 키에 통째로 넣는다.
+ * (로그인 토큰은 민감정보라 그대로 secure-store에 남는다 — lib/authStorage.ts)
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 import type { ApiProduct } from './api';
 import type { OverlayMap } from './catalog/overlay';
 import type { StoreZone } from './mock/storeMap';
 
-const INDEX_KEY = 'cartraider.catalog.index';
-const CHUNK_KEY = (i: number) => `cartraider.catalog.${i}`;
-/** secure-store 권장 한도(2048B)보다 넉넉히 작게 — 한글은 UTF-8에서 3바이트다. */
-const CHUNK_SIZE = 600;
-/** 오래된 청크를 지울 때 훑어볼 최대 개수 (안전 상한). */
-const MAX_CHUNKS = 64;
+const STORAGE_KEY = 'cartraider.catalog';
+
+// ── 구 secure-store 청크 저장본(마이그레이션용) ────────────────────────
+const LEGACY_INDEX_KEY = 'cartraider.catalog.index';
+const LEGACY_CHUNK_KEY = (i: number) => `cartraider.catalog.${i}`;
+const LEGACY_MAX_CHUNKS = 64;
 
 /** 저장 스키마가 바뀌면 올린다. 저장본 버전이 낮으면 버린다. (v1=구 mock 전체상품 저장) */
 // 3: 매대 구역 id 개편(fresh/dairy/… → food/beverage/household/digital/beauty/leisure).
@@ -37,28 +40,74 @@ export interface StoredCatalog {
   cachedProducts: ApiProduct[];
 }
 
-interface CatalogIndex {
+interface LegacyCatalogIndex {
   version: number;
   chunks: number;
 }
 
-export async function loadCatalog(): Promise<StoredCatalog | null> {
+function parseCatalog(raw: string | null): StoredCatalog | null {
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as StoredCatalog;
+  return parsed.version === CATALOG_VERSION ? parsed : null;
+}
+
+/**
+ * 예전 secure-store 청크 저장본을 한 번만 읽어 async-storage로 옮기고 지운다.
+ * 오버레이·매대 배치는 관리자가 앱에서 편집한 로컬 전용 데이터라 그냥 버리면 안 된다.
+ */
+async function migrateLegacyCatalog(): Promise<StoredCatalog | null> {
   try {
-    const rawIndex = await SecureStore.getItemAsync(INDEX_KEY);
+    const rawIndex = await SecureStore.getItemAsync(LEGACY_INDEX_KEY);
     if (!rawIndex) return null;
 
-    const index = JSON.parse(rawIndex) as CatalogIndex;
-    if (index.version !== CATALOG_VERSION || !index.chunks) return null;
+    const index = JSON.parse(rawIndex) as LegacyCatalogIndex;
+    let migrated: StoredCatalog | null = null;
 
-    const parts: string[] = [];
-    for (let i = 0; i < index.chunks; i += 1) {
-      const part = await SecureStore.getItemAsync(CHUNK_KEY(i));
-      // 청크가 하나라도 비면 저장본이 깨진 것 — 시드로 다시 시작한다.
-      if (part === null) return null;
-      parts.push(part);
+    if (index.version === CATALOG_VERSION && index.chunks) {
+      const parts: string[] = [];
+      for (let i = 0; i < index.chunks; i += 1) {
+        const part = await SecureStore.getItemAsync(LEGACY_CHUNK_KEY(i));
+        // 청크가 하나라도 비면 저장본이 깨진 것 — 버리고 시드로 시작한다.
+        if (part === null) {
+          migrated = null;
+          break;
+        }
+        parts.push(part);
+      }
+      if (parts.length === index.chunks) {
+        migrated = parseCatalog(parts.join(''));
+      }
     }
 
-    return JSON.parse(parts.join('')) as StoredCatalog;
+    if (migrated) {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+    }
+    await clearLegacyCatalog();
+    return migrated;
+  } catch {
+    return null;
+  }
+}
+
+async function clearLegacyCatalog(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(LEGACY_INDEX_KEY);
+    for (let i = 0; i < LEGACY_MAX_CHUNKS; i += 1) {
+      const stale = await SecureStore.getItemAsync(LEGACY_CHUNK_KEY(i));
+      if (stale === null) break;
+      await SecureStore.deleteItemAsync(LEGACY_CHUNK_KEY(i));
+    }
+  } catch {
+    // 삭제 실패는 무시 — 다음 기동에서 다시 시도한다.
+  }
+}
+
+export async function loadCatalog(): Promise<StoredCatalog | null> {
+  try {
+    const stored = parseCatalog(await AsyncStorage.getItem(STORAGE_KEY));
+    if (stored) return stored;
+    // async-storage에 없으면 구 저장본이 남아 있는지 한 번 확인한다.
+    return await migrateLegacyCatalog();
   } catch {
     return null;
   }
@@ -66,26 +115,7 @@ export async function loadCatalog(): Promise<StoredCatalog | null> {
 
 export async function saveCatalog(catalog: Omit<StoredCatalog, 'version'>): Promise<void> {
   try {
-    const json = JSON.stringify({ version: CATALOG_VERSION, ...catalog });
-    const chunks: string[] = [];
-    for (let i = 0; i < json.length; i += CHUNK_SIZE) {
-      chunks.push(json.slice(i, i + CHUNK_SIZE));
-    }
-
-    for (let i = 0; i < chunks.length; i += 1) {
-      await SecureStore.setItemAsync(CHUNK_KEY(i), chunks[i]);
-    }
-    // 이전 저장본이 더 길었다면 남는 꼬리 청크를 지운다.
-    for (let i = chunks.length; i < MAX_CHUNKS; i += 1) {
-      const stale = await SecureStore.getItemAsync(CHUNK_KEY(i));
-      if (stale === null) break;
-      await SecureStore.deleteItemAsync(CHUNK_KEY(i));
-    }
-
-    await SecureStore.setItemAsync(
-      INDEX_KEY,
-      JSON.stringify({ version: CATALOG_VERSION, chunks: chunks.length } satisfies CatalogIndex),
-    );
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ version: CATALOG_VERSION, ...catalog }));
   } catch {
     // 저장 실패는 무시 — 현재 세션의 카탈로그 상태에는 영향 없음.
   }
@@ -93,12 +123,8 @@ export async function saveCatalog(catalog: Omit<StoredCatalog, 'version'>): Prom
 
 export async function clearCatalog(): Promise<void> {
   try {
-    await SecureStore.deleteItemAsync(INDEX_KEY);
-    for (let i = 0; i < MAX_CHUNKS; i += 1) {
-      const stale = await SecureStore.getItemAsync(CHUNK_KEY(i));
-      if (stale === null) break;
-      await SecureStore.deleteItemAsync(CHUNK_KEY(i));
-    }
+    await AsyncStorage.removeItem(STORAGE_KEY);
+    await clearLegacyCatalog();
   } catch {
     // 삭제 실패는 무시.
   }

@@ -1,5 +1,5 @@
 import { Image as ExpoImage } from 'expo-image';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Path, Rect } from 'react-native-svg';
 
@@ -49,10 +49,14 @@ function ProductImageBase({
   const [remoteFailed, setRemoteFailed] = useState(false);
   const [loading, setLoading] = useState(true);
   // 주소가 바뀌면(상품 변경·이미지 교체) 상태를 초기화한다.
-  useEffect(() => {
+  // 목록에서 카드가 재사용될 때마다 도는 자리라, effect로 한 번 더 렌더를 돌리는 대신
+  // 렌더 중에 곧바로 맞춘다(React가 권장하는 "prop이 바뀔 때 state 조정" 패턴).
+  const [shownUri, setShownUri] = useState(uri);
+  if (uri !== shownUri) {
+    setShownUri(uri);
     setRemoteFailed(false);
     setLoading(true);
-  }, [uri]);
+  }
 
   // 컨테이너 스타일은 세 갈래가 공유한다.
   const box = useMemo(
@@ -169,7 +173,13 @@ function Shape({ spec }: { spec: ArtSpec }) {
     case 'apple':
       return (
         <G>
-          <Path d="M50 30 Q47 22 41 19" stroke={accent} strokeWidth={3} fill="none" strokeLinecap="round" />
+          <Path
+            d="M50 30 Q47 22 41 19"
+            stroke={accent}
+            strokeWidth={3}
+            fill="none"
+            strokeLinecap="round"
+          />
           <Path d="M52 28 Q60 20 68 24 Q62 32 52 31 Z" fill={accent} />
           <Circle cx="41" cy="53" r="21" fill={main} />
           <Circle cx="59" cy="53" r="21" fill={main} />
@@ -180,12 +190,21 @@ function Shape({ spec }: { spec: ArtSpec }) {
     case 'banana':
       return (
         <G>
+          <Path d="M30 32 Q28 62 52 74 Q74 82 78 60 Q70 72 52 65 Q38 57 40 32 Z" fill={main} />
           <Path
-            d="M30 32 Q28 62 52 74 Q74 82 78 60 Q70 72 52 65 Q38 57 40 32 Z"
-            fill={main}
+            d="M30 32 Q34 30 40 32"
+            stroke={accent}
+            strokeWidth={4}
+            fill="none"
+            strokeLinecap="round"
           />
-          <Path d="M30 32 Q34 30 40 32" stroke={accent} strokeWidth={4} fill="none" strokeLinecap="round" />
-          <Path d="M44 42 Q44 62 62 70" stroke="#FFFFFF" strokeWidth={3} fill="none" opacity={0.4} />
+          <Path
+            d="M44 42 Q44 62 62 70"
+            stroke="#FFFFFF"
+            strokeWidth={3}
+            fill="none"
+            opacity={0.4}
+          />
         </G>
       );
 
@@ -193,7 +212,12 @@ function Shape({ spec }: { spec: ArtSpec }) {
       return (
         <G>
           <Circle cx="50" cy="56" r="23" fill={main} />
-          <Path d="M50 33 L44 24 M50 33 L56 24 M50 33 L50 22" stroke={accent} strokeWidth={3} strokeLinecap="round" />
+          <Path
+            d="M50 33 L44 24 M50 33 L56 24 M50 33 L50 22"
+            stroke={accent}
+            strokeWidth={3}
+            strokeLinecap="round"
+          />
           <Path d="M38 34 Q50 28 62 34 Q50 40 38 34 Z" fill={accent} />
           <Ellipse cx="42" cy="49" rx="5" ry="7" fill="#FFFFFF" opacity={0.35} />
         </G>
@@ -204,14 +228,25 @@ function Shape({ spec }: { spec: ArtSpec }) {
         <G>
           <Path d="M50 78 Q26 66 28 38 Q48 34 52 54 Z" fill={main} />
           <Path d="M50 78 Q74 64 72 36 Q52 34 48 56 Z" fill={accent} opacity={0.85} />
-          <Path d="M50 78 L50 44" stroke="#FFFFFF" strokeWidth={2.5} opacity={0.5} strokeLinecap="round" />
+          <Path
+            d="M50 78 L50 44"
+            stroke="#FFFFFF"
+            strokeWidth={2.5}
+            opacity={0.5}
+            strokeLinecap="round"
+          />
         </G>
       );
 
     case 'milk':
       return (
         <G>
-          <Path d="M34 34 L50 22 L66 34 L66 78 L34 78 Z" fill={main} stroke={accent} strokeWidth={2.5} />
+          <Path
+            d="M34 34 L50 22 L66 34 L66 78 L34 78 Z"
+            fill={main}
+            stroke={accent}
+            strokeWidth={2.5}
+          />
           <Rect x="34" y="52" width="32" height="16" fill={accent} opacity={0.85} />
           <Path d="M34 34 L66 34" stroke={accent} strokeWidth={2.5} />
         </G>
@@ -249,7 +284,12 @@ function Shape({ spec }: { spec: ArtSpec }) {
       return (
         <G>
           <Rect x="44" y="20" width="12" height="12" rx="2" fill={accent} />
-          <Path d="M42 32 L58 32 L62 44 L62 78 L38 78 L38 44 Z" fill={main} stroke={accent} strokeWidth={2} />
+          <Path
+            d="M42 32 L58 32 L62 44 L62 78 L38 78 L38 44 Z"
+            fill={main}
+            stroke={accent}
+            strokeWidth={2}
+          />
           <Rect x="38" y="54" width="24" height="12" fill={accent} opacity={0.75} />
         </G>
       );
@@ -270,7 +310,12 @@ function Shape({ spec }: { spec: ArtSpec }) {
           <Rect x="28" y="30" width="44" height="48" rx="5" fill={main} />
           <Path d="M28 44 L72 44" stroke="#FFFFFF" strokeWidth={3} opacity={0.6} />
           <Ellipse cx="50" cy="60" rx="13" ry="9" fill="#FFFFFF" opacity={0.9} />
-          <Path d="M42 60 Q50 55 58 60 M42 64 Q50 59 58 64" stroke={accent} strokeWidth={2} fill="none" />
+          <Path
+            d="M42 60 Q50 55 58 60 M42 64 Q50 59 58 64"
+            stroke={accent}
+            strokeWidth={2}
+            fill="none"
+          />
         </G>
       );
 
@@ -286,7 +331,12 @@ function Shape({ spec }: { spec: ArtSpec }) {
     case 'riceBowl':
       return (
         <G>
-          <Path d="M30 52 Q50 44 70 52 L64 76 Q50 80 36 76 Z" fill={main} stroke={accent} strokeWidth={2} />
+          <Path
+            d="M30 52 Q50 44 70 52 L64 76 Q50 80 36 76 Z"
+            fill={main}
+            stroke={accent}
+            strokeWidth={2}
+          />
           <Ellipse cx="50" cy="52" rx="20" ry="7" fill="#FFFFFF" />
           <Path d="M30 52 Q50 46 70 52" stroke={accent} strokeWidth={2} fill="none" />
         </G>
@@ -305,7 +355,13 @@ function Shape({ spec }: { spec: ArtSpec }) {
       return (
         <G>
           <Path d="M28 46 Q40 32 58 36 Q76 40 72 58 Q68 76 48 74 Q30 72 28 46 Z" fill={main} />
-          <Path d="M38 50 Q48 44 58 48 Q66 52 62 62" stroke="#FFFFFF" strokeWidth={3.5} fill="none" opacity={0.65} />
+          <Path
+            d="M38 50 Q48 44 58 48 Q66 52 62 62"
+            stroke="#FFFFFF"
+            strokeWidth={3.5}
+            fill="none"
+            opacity={0.65}
+          />
           <Path d="M34 62 Q44 58 52 64" stroke={accent} strokeWidth={3} fill="none" opacity={0.6} />
         </G>
       );
@@ -367,7 +423,16 @@ function Shape({ spec }: { spec: ArtSpec }) {
     case 'tissue':
       return (
         <G>
-          <Rect x="32" y="34" width="36" height="44" rx="6" fill={main} stroke={accent} strokeWidth={2} />
+          <Rect
+            x="32"
+            y="34"
+            width="36"
+            height="44"
+            rx="6"
+            fill={main}
+            stroke={accent}
+            strokeWidth={2}
+          />
           <Circle cx="50" cy="56" r="8" fill={accent} opacity={0.35} />
           <Path d="M32 42 L68 42" stroke={accent} strokeWidth={2} opacity={0.5} />
         </G>

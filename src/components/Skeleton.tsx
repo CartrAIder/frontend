@@ -1,5 +1,14 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, View, type DimensionValue } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from 'react';
+import { StyleSheet, View, type DimensionValue } from 'react-native';
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { useTheme } from '@/context/ModeContext';
 
@@ -9,26 +18,13 @@ import { useTheme } from '@/context/ModeContext';
  * 스피너 하나만 돌리면 화면이 텅 빈 채로 있다가 갑자기 채워져 껌뻑이는데, 스켈레톤은
  * 들어올 자리를 미리 잡아줘서 그 점프가 없다.
  *
- * 애니메이션은 RN 내장 Animated 의 opacity 펄스다(네이티브 드라이버, 설정 불필요).
+ * 연출은 블록 위를 빛이 훑고 지나가는 shimmer다. reanimated로 UI 스레드에서 돌리므로
+ * 목록이 한 화면에 여러 개 떠 있어도 JS 스레드(데이터 파싱·렌더)를 붙잡지 않는다.
+ * OS의 "동작 줄이기" 설정을 켠 사용자에게는 reanimated가 알아서 애니메이션을 생략한다.
  */
 
-/** 여러 스켈레톤이 같은 박자로 깜빡이도록 하나의 펄스 값을 공유한다. */
-function usePulse(): Animated.AnimatedInterpolation<number> {
-  const value = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(value, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(value, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [value]);
-
-  return value.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
-}
+/** 빛이 한 번 훑고 지나가는 데 걸리는 시간(ms). */
+const SWEEP_DURATION = 1150;
 
 /** 회색 블록 하나. */
 export function Skeleton({
@@ -43,15 +39,52 @@ export function Skeleton({
   style?: object;
 }) {
   const { colors } = useTheme();
-  const opacity = usePulse();
+  // 훑는 거리는 블록 실제 너비에 맞춰야 해서 onLayout으로 재서 넣는다(퍼센트 너비 대응).
+  const blockWidth = useSharedValue(0);
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withRepeat(
+      withTiming(1, {
+        duration: SWEEP_DURATION,
+        easing: Easing.linear,
+        reduceMotion: ReduceMotion.System,
+      }),
+      -1,
+      false,
+    );
+  }, [progress]);
+
+  // 왼쪽 바깥(-w)에서 오른쪽 바깥(+w)까지 이동시켜 한 번 훑는 모양을 만든다.
+  const sweep = useAnimatedStyle(() => ({
+    transform: [{ translateX: -blockWidth.value + progress.value * blockWidth.value * 2 }],
+  }));
 
   return (
-    <Animated.View
+    <View
+      onLayout={(event) => {
+        blockWidth.value = event.nativeEvent.layout.width;
+      }}
       style={[
-        { width: width ?? '100%', height, borderRadius: radius, backgroundColor: colors.border, opacity },
+        {
+          width: width ?? '100%',
+          height,
+          borderRadius: radius,
+          backgroundColor: colors.border,
+          overflow: 'hidden',
+        },
         style,
       ]}
-    />
+    >
+      <Animated.View style={[StyleSheet.absoluteFill, sweep]}>
+        <LinearGradient
+          colors={['transparent', colors.shimmer, 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -98,7 +131,7 @@ export function ListRowSkeleton({ imageSize = 72 }: { imageSize?: number }) {
 /** 카드형 목록(관리자 주문 목록 등). */
 export function CardListSkeleton({ count = 4 }: { count?: number }) {
   const theme = useTheme();
-  const { colors } = useTheme();
+  const { colors } = theme;
   return (
     <View style={{ gap: theme.spacing }}>
       {Array.from({ length: count }, (_, i) => (
@@ -106,7 +139,11 @@ export function CardListSkeleton({ count = 4 }: { count?: number }) {
           key={i}
           style={[
             styles.card,
-            { backgroundColor: colors.card, borderRadius: theme.radius, padding: theme.spacing + 4 },
+            {
+              backgroundColor: colors.card,
+              borderRadius: theme.radius,
+              padding: theme.spacing + 4,
+            },
           ]}
         >
           <View style={styles.cardHead}>
@@ -129,10 +166,52 @@ export function CardListSkeleton({ count = 4 }: { count?: number }) {
   );
 }
 
+/** 상품 상세 자리 — 큰 이미지 + 제목·가격 + 본문 블록. */
+export function ProductDetailSkeleton({ imageSize }: { imageSize: number }) {
+  const theme = useTheme();
+  return (
+    <View style={{ gap: theme.spacing + 4 }}>
+      <Skeleton width="100%" height={imageSize} radius={theme.imageRadius} />
+      <View style={{ gap: 10 }}>
+        <Skeleton width="35%" height={12} />
+        <Skeleton width="80%" height={20} />
+        <Skeleton width="45%" height={24} />
+      </View>
+      <Skeleton width="100%" height={1} radius={0} />
+      <View style={{ gap: 10 }}>
+        <Skeleton width="30%" height={14} />
+        <Skeleton width="100%" height={140} radius={theme.radius} />
+      </View>
+    </View>
+  );
+}
+
+/** 라벨·값 한 줄이 반복되는 자리(마이페이지·결제 요약). */
+export function InfoRowsSkeleton({ count = 4 }: { count?: number }) {
+  const theme = useTheme();
+  return (
+    <View style={{ gap: theme.spacing }}>
+      {Array.from({ length: count }, (_, i) => (
+        <View key={i} style={styles.infoRow}>
+          <Skeleton width="30%" height={13} />
+          <Skeleton width="25%" height={13} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   card: { gap: 12 },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  cardFoot: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, borderTopWidth: 1, paddingTop: 10 },
+  cardFoot: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    borderTopWidth: 1,
+    paddingTop: 10,
+  },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 });

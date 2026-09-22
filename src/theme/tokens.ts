@@ -47,6 +47,12 @@ export interface ModeColors {
   discount: string;
   /** 리뷰 별점 색 */
   star: string;
+  /** 안드로이드 터치 물결(ripple) 색 — senior는 눌린 게 확실히 보이도록 진하게 */
+  ripple: string;
+  /** 채움 버튼(파랑·초록) 위에 올라가는 물결 — 어두운 배경이라 밝은 색을 쓴다 */
+  rippleOnPrimary: string;
+  /** 스켈레톤 위를 훑고 지나가는 빛 — 회색 블록(border 색) 위에서 보여야 한다 */
+  shimmer: string;
 }
 
 export interface ModeTokens {
@@ -125,6 +131,9 @@ export const tokens: Record<Mode, ModeTokens> = {
       danger: '#DC2626',
       discount: '#FF3B30',
       star: '#FBBF24',
+      ripple: 'rgba(37, 99, 235, 0.12)',
+      rippleOnPrimary: 'rgba(255, 255, 255, 0.24)',
+      shimmer: 'rgba(255, 255, 255, 0.75)',
     },
   },
   senior: {
@@ -167,6 +176,9 @@ export const tokens: Record<Mode, ModeTokens> = {
       danger: '#B91C1C',
       discount: '#C81E1E',
       star: '#B45309',
+      ripple: 'rgba(29, 78, 216, 0.24)',
+      rippleOnPrimary: 'rgba(255, 255, 255, 0.32)',
+      shimmer: 'rgba(255, 255, 255, 0.55)',
     },
   },
 };

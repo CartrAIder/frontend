@@ -1,15 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppBar } from '@/components/AppBar';
@@ -64,83 +56,96 @@ export default function WithdrawScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="회원 탈퇴" />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          contentContainerStyle={{ padding: 20, gap: theme.spacing }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ gap: 6, marginTop: 4 }}>
-            <Text style={{ fontSize: theme.fontTitle, color: colors.text, fontWeight: '800' }}>
-              정말 떠나시나요?
-            </Text>
-            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, lineHeight: 22 }}>
-              {member?.email ?? ''} 계정을 탈퇴합니다.
+      <KeyboardAwareScrollView
+        bottomOffset={24}
+        contentContainerStyle={{ padding: 20, gap: theme.spacing }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ gap: 6, marginTop: 4 }}>
+          <Text style={{ fontSize: theme.fontTitle, color: colors.text, fontWeight: '800' }}>
+            정말 떠나시나요?
+          </Text>
+          <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, lineHeight: 22 }}>
+            {member?.email ?? ''} 계정을 탈퇴합니다.
+          </Text>
+        </View>
+
+        <Card style={{ gap: 10 }}>
+          <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>
+            탈퇴 전에 확인해주세요
+          </Text>
+          {NOTICES.map((notice) => (
+            <View key={notice} style={styles.noticeRow}>
+              <View style={[styles.dot, { backgroundColor: colors.textMuted }]} />
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: theme.fontBody - 2,
+                  color: colors.textMuted,
+                  lineHeight: 20,
+                }}
+              >
+                {notice}
+              </Text>
+            </View>
+          ))}
+        </Card>
+
+        <TextField
+          label="비밀번호 확인"
+          value={password}
+          onChangeText={(t) => {
+            setPassword(t);
+            if (error) setError(null);
+          }}
+          placeholder="현재 비밀번호"
+          secureTextEntry
+          autoCapitalize="none"
+          autoComplete="current-password"
+          textContentType="password"
+          returnKeyType="done"
+          onSubmitEditing={handlePress}
+          invalid={!!error}
+        />
+
+        {error && (
+          <View style={[styles.errorBox, { borderColor: colors.danger }]}>
+            <Text style={{ fontSize: theme.fontBody - 1, color: colors.danger, lineHeight: 20 }}>
+              {error}
             </Text>
           </View>
+        )}
 
-          <Card style={{ gap: 10 }}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}>
-              탈퇴 전에 확인해주세요
+        {/* 안전한 쪽(돌아가기)을 주 CTA로 두고, 파괴적 액션은 마이페이지 로그아웃과 같은 저강조 버튼으로 둔다. */}
+        <PrimaryButton title="돌아가기" onPress={() => router.back()} disabled={submitting} />
+        <Pressable
+          onPress={handlePress}
+          disabled={submitting || password.length === 0}
+          accessibilityRole="button"
+          style={[
+            styles.dangerButton,
+            {
+              borderColor: colors.danger,
+              borderRadius: theme.radiusSm,
+              minHeight: theme.minTouch,
+              opacity: password.length === 0 ? 0.4 : 1,
+            },
+          ]}
+        >
+          {submitting ? (
+            <ActivityIndicator color={colors.danger} />
+          ) : (
+            <Text style={{ fontSize: theme.fontButton, color: colors.danger, fontWeight: '700' }}>
+              탈퇴하기
             </Text>
-            {NOTICES.map((notice) => (
-              <View key={notice} style={styles.noticeRow}>
-                <View style={[styles.dot, { backgroundColor: colors.textMuted }]} />
-                <Text style={{ flex: 1, fontSize: theme.fontBody - 2, color: colors.textMuted, lineHeight: 20 }}>
-                  {notice}
-                </Text>
-              </View>
-            ))}
-          </Card>
-
-          <TextField
-            label="비밀번호 확인"
-            value={password}
-            onChangeText={(t) => {
-              setPassword(t);
-              if (error) setError(null);
-            }}
-            placeholder="현재 비밀번호"
-            secureTextEntry
-            autoCapitalize="none"
-            autoComplete="current-password"
-            textContentType="password"
-            returnKeyType="done"
-            onSubmitEditing={handlePress}
-            invalid={!!error}
-          />
-
-          {error && (
-            <View style={[styles.errorBox, { borderColor: colors.danger }]}>
-              <Text style={{ fontSize: theme.fontBody - 1, color: colors.danger, lineHeight: 20 }}>{error}</Text>
-            </View>
           )}
-
-          {/* 안전한 쪽(돌아가기)을 주 CTA로 두고, 파괴적 액션은 마이페이지 로그아웃과 같은 저강조 버튼으로 둔다. */}
-          <PrimaryButton title="돌아가기" onPress={() => router.back()} disabled={submitting} />
-          <Pressable
-            onPress={handlePress}
-            disabled={submitting || password.length === 0}
-            accessibilityRole="button"
-            style={[
-              styles.dangerButton,
-              {
-                borderColor: colors.danger,
-                borderRadius: theme.radiusSm,
-                minHeight: theme.minTouch,
-                opacity: password.length === 0 ? 0.4 : 1,
-              },
-            ]}
-          >
-            {submitting ? (
-              <ActivityIndicator color={colors.danger} />
-            ) : (
-              <Text style={{ fontSize: theme.fontButton, color: colors.danger, fontWeight: '700' }}>탈퇴하기</Text>
-            )}
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </Pressable>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -151,5 +156,10 @@ const styles = StyleSheet.create({
   noticeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   dot: { width: 5, height: 5, borderRadius: 3, marginTop: 8 },
   errorBox: { borderWidth: 1, borderRadius: 10, padding: 12 },
-  dangerButton: { borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
+  dangerButton: {
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+  },
 });

@@ -1,8 +1,24 @@
-import * as MediaLibrary from 'expo-media-library';
+import * as Haptics from 'expo-haptics';
+// SDK 57부터 'expo-media-library' 최상위는 클래스 기반 새 API(네이티브 모듈
+// ExpoMediaLibraryNext)로 바뀌었고, import 시점에 그 네이티브 모듈을 요구한다.
+// Expo Go에는 아직 없어서 화면 진입 자체가 죽는다. 우리가 쓰는 건 사진 저장 하나뿐이라
+// 기존 네이티브 모듈(ExpoMediaLibrary)을 쓰는 legacy 진입점을 명시적으로 import한다.
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
+import Animated, { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { captureRef } from 'react-native-view-shot';
 
@@ -18,6 +34,15 @@ interface ReceiptItem {
   name: string;
   qty: number;
   unitPrice: number;
+}
+
+/** 실패 원인을 화면에 그대로 보여주기 위한 최소한의 요약(네이티브 에러는 code가 핵심이다). */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = (error as { code?: string }).code;
+    return code ? `${code}: ${error.message}` : error.message;
+  }
+  return String(error);
 }
 
 function formatDateTime(ms: number): string {
@@ -49,7 +74,10 @@ export default function CompleteScreen() {
   const gateToken = params.gateToken?.trim() ? params.gateToken.trim() : null;
   const qrValue = gateToken ?? receiptId;
   const amount = Number(params.amount ?? 0);
-  const paidAt = Number(params.paidAt ?? Date.now());
+  // 결제 시각이 없는 비정상 진입 대비 폴백. Date.now()를 렌더에서 부르면 렌더가 순수하지
+  // 않아지므로(같은 입력에 다른 결과) 화면을 연 시각을 한 번만 잡아 쓴다.
+  const [openedAt] = useState(() => Date.now());
+  const paidAt = Number(params.paidAt ?? openedAt);
   const items: ReceiptItem[] = useMemo(() => {
     try {
       return params.items ? (JSON.parse(params.items) as ReceiptItem[]) : [];
@@ -73,6 +101,10 @@ export default function CompleteScreen() {
   // 결제가 승인되면 백엔드가 카트 세션을 이미 닫는다 → 로컬 상태만 정리한다.
   useEffect(() => {
     endSessionLocally();
+    // 결제 성공은 앱에서 가장 중요한 순간이라 진동으로도 알린다.
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,21 +119,48 @@ export default function CompleteScreen() {
     if (saving) return;
     setSaving(true);
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
+      // 사진 저장만 하면 되므로 쓰기 권한만 요청한다(읽기까지 요구하면 거절 확률만 높다).
+      // 기기·OS 버전에 따라 쓰기 전용 요청이 거절될 수 있어, 그때는 전체 권한으로 한 번 더 묻는다.
+      let perm = await MediaLibrary.requestPermissionsAsync(true);
+      if (!perm.granted && perm.canAskAgain) {
+        perm = await MediaLibrary.requestPermissionsAsync();
+      }
       if (!perm.granted) {
-        Alert.alert('권한 필요', '영수증을 저장하려면 사진 접근 권한이 필요해요.');
+        // "다시 묻지 않음"까지 누른 상태면 앱 안에서는 더 물어볼 수 없다 → 설정으로 보낸다.
+        if (perm.canAskAgain) {
+          Alert.alert('권한 필요', '영수증을 저장하려면 사진 접근 권한이 필요해요.');
+        } else {
+          Alert.alert('권한 필요', '설정에서 사진 접근 권한을 허용해주세요.', [
+            { text: '닫기', style: 'cancel' },
+            { text: '설정 열기', onPress: () => Linking.openSettings() },
+          ]);
+        }
         return;
       }
+
       // 저장 이미지는 항상 전체 내역이 담기도록, 캡처 전에 상세를 펼친다.
       if (!expanded) {
         setExpanded(true);
         await new Promise((resolve) => setTimeout(resolve, 80));
       }
-      const uri = await captureRef(receiptRef, { format: 'png', quality: 1 });
-      await MediaLibrary.saveToLibraryAsync(uri);
+
+      // 어느 단계에서 실패했는지 화면에 남긴다 — 캡처 실패와 저장 실패는 원인이 전혀 다르다.
+      let uri: string;
+      try {
+        uri = await captureRef(receiptRef, { format: 'png', quality: 1 });
+      } catch (e) {
+        throw new Error(`영수증 이미지를 만들지 못했어요.\n(${describeError(e)})`);
+      }
+
+      try {
+        await MediaLibrary.saveToLibraryAsync(uri);
+      } catch (e) {
+        throw new Error(`사진 앱에 저장하지 못했어요.\n(${describeError(e)})`);
+      }
+
       Alert.alert('저장 완료', '영수증 이미지를 사진에 저장했어요.');
-    } catch {
-      Alert.alert('저장 실패', '영수증 저장에 실패했어요. 다시 시도해주세요.');
+    } catch (e) {
+      Alert.alert('저장 실패', e instanceof Error ? e.message : '영수증 저장에 실패했어요.');
     } finally {
       setSaving(false);
     }
@@ -113,24 +172,46 @@ export default function CompleteScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="결제 완료" showBack={false} />
 
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {/* 성공 헤더 — 금액을 가장 크게 */}
         <View style={styles.successHead}>
-          <View style={[styles.checkRing, { backgroundColor: colors.successSurface }]}>
+          <Animated.View
+            entering={ZoomIn.springify().damping(12)}
+            style={[styles.checkRing, { backgroundColor: colors.successSurface }]}
+          >
             <View style={[styles.checkCircle, { backgroundColor: colors.success }]}>
               <Icon name="check" size={30} color="#FFFFFF" strokeWidth={3.2} />
             </View>
-          </View>
-          <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>결제가 완료되었어요</Text>
-          <Text style={{ fontSize: theme.fontDisplay, color: colors.text, fontWeight: '800', letterSpacing: -0.5 }}>
+          </Animated.View>
+          <Animated.Text
+            entering={FadeInDown.delay(120)}
+            style={{ fontSize: theme.fontBody, color: colors.textMuted }}
+          >
+            결제가 완료되었어요
+          </Animated.Text>
+          <Animated.Text
+            entering={FadeInDown.delay(180)}
+            style={{
+              fontSize: theme.fontDisplay,
+              color: colors.text,
+              fontWeight: '800',
+              letterSpacing: -0.5,
+            }}
+          >
             {formatWon(amount)}
-          </Text>
-          <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}>
+          </Animated.Text>
+          <Animated.Text
+            entering={FadeInDown.delay(240)}
+            style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}
+          >
             {summaryText} · 총 {totalQty}개
-          </Text>
+          </Animated.Text>
         </View>
 
         {/* 영수증 카드 (캡처 대상) */}
@@ -204,10 +285,17 @@ export default function CompleteScreen() {
             style={[styles.detailToggle, { minHeight: theme.minTouch }]}
             hitSlop={8}
           >
-            <Text style={{ fontSize: theme.fontBody - 1, color: colors.textMuted, fontWeight: '700' }}>
+            <Text
+              style={{ fontSize: theme.fontBody - 1, color: colors.textMuted, fontWeight: '700' }}
+            >
               {expanded ? '상세 접기' : '상품 상세 보기'}
             </Text>
-            <Icon name={expanded ? 'chevronLeft' : 'chevronRight'} size={14} color={colors.textMuted} strokeWidth={2.6} />
+            <Icon
+              name={expanded ? 'chevronLeft' : 'chevronRight'}
+              size={14}
+              color={colors.textMuted}
+              strokeWidth={2.6}
+            />
           </Pressable>
         ) : null}
       </ScrollView>
@@ -233,7 +321,9 @@ export default function CompleteScreen() {
           ) : (
             <>
               <Icon name="receipt" size={18} color={colors.text} />
-              <Text style={{ fontSize: theme.fontBody - 1, color: colors.text, fontWeight: '700' }}>영수증 저장</Text>
+              <Text style={{ fontSize: theme.fontBody - 1, color: colors.text, fontWeight: '700' }}>
+                영수증 저장
+              </Text>
             </>
           )}
         </Pressable>
@@ -249,8 +339,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   body: { paddingHorizontal: 20, paddingBottom: 20, gap: 16 },
   successHead: { alignItems: 'center', gap: 5, paddingTop: 8, paddingBottom: 4 },
-  checkRing: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  checkCircle: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
+  checkRing: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  checkCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // ── 영수증(문서) — 캡처 이미지가 모드와 무관하게 일관되도록 고정 스타일 ──
   receipt: {
@@ -276,15 +379,32 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     marginVertical: 14,
   },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', paddingVertical: 3, gap: 12 },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    paddingVertical: 3,
+    gap: 12,
+  },
   metaK: { fontSize: 13, color: '#9CA3AF' },
   metaV: { fontSize: 13, color: '#111827', fontWeight: '600', flexShrink: 1 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', paddingVertical: 4, gap: 10 },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    paddingVertical: 4,
+    gap: 10,
+  },
   itemName: { fontSize: 14, color: '#111827', flex: 1 },
   itemQty: { fontSize: 13, color: '#9CA3AF' },
   itemAmt: { fontSize: 14, color: '#111827', fontWeight: '700', minWidth: 72, textAlign: 'right' },
   itemMuted: { fontSize: 13, color: '#9CA3AF', paddingVertical: 6 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch', alignItems: 'baseline' },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    alignItems: 'baseline',
+  },
   totalK: { fontSize: 14, color: '#111827', fontWeight: '700' },
   totalV: { fontSize: 22, color: '#111827', fontWeight: '800', letterSpacing: -0.5 },
   thanks: { fontSize: 11, color: '#C4C9D2', marginTop: 16 },

@@ -1,5 +1,12 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, useWindowDimensions } from 'react-native';
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 /**
  * 탭 화면 전환 — 탭 순서에 따라 좌/우에서 밀려 들어온다.
@@ -8,8 +15,8 @@ import { Animated, Easing, StyleSheet, useWindowDimensions } from 'react-native'
  * 라우트는 Stack 애니메이션을 끄고(`animation: 'none'`), 여기서 직접 밀어 넣는다.
  * 방향은 BottomTabBar 가 이동 직전에 이 모듈에 적어둔다.
  *
- * reanimated 대신 RN 내장 Animated 를 쓴다(babel 플러그인 설정이 필요 없고 네이티브
- * 드라이버로 도는 transform 이라 성능도 충분하다).
+ * reanimated로 UI 스레드에서 돌린다. 탭을 옮기는 순간은 새 화면이 데이터를 읽고 목록을
+ * 그리느라 JS 스레드가 가장 바쁜 때라, 전환만큼은 그 영향을 받지 않는 편이 낫다.
  */
 
 export type TabDirection = 'left' | 'right' | 'none';
@@ -34,27 +41,26 @@ function consumeDirection(): TabDirection {
  */
 export function TabTransition({ children }: { children: React.ReactNode }) {
   // 마운트 시점에 한 번만 방향을 정한다(리렌더로 다시 미끄러지지 않게).
-  const direction = useRef(consumeDirection()).current;
+  const [direction] = useState(consumeDirection);
   // 슬라이드 거리도 실제 창 폭에서 잡는다(모듈 상수면 웹에서 0이 잡혀 전환이 안 보인다).
   const { width } = useWindowDimensions();
   const slideFrom = width > 0 ? width : 375;
-  const translateX = useRef(
-    new Animated.Value(direction === 'none' ? 0 : direction === 'right' ? slideFrom : -slideFrom),
-  ).current;
+  const offset = useSharedValue(
+    direction === 'none' ? 0 : direction === 'right' ? slideFrom : -slideFrom,
+  );
 
   useEffect(() => {
     if (direction === 'none') return;
-    Animated.timing(translateX, {
-      toValue: 0,
+    offset.value = withTiming(0, {
       duration: 240,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [direction, translateX]);
+      reduceMotion: ReduceMotion.System,
+    });
+  }, [direction, offset]);
 
-  return (
-    <Animated.View style={[styles.fill, { transform: [{ translateX }] }]}>{children}</Animated.View>
-  );
+  const slide = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
+
+  return <Animated.View style={[styles.fill, slide]}>{children}</Animated.View>;
 }
 
 const styles = StyleSheet.create({
