@@ -6,6 +6,8 @@
  * row 0~1(6칸)은 매대 선반, row 2는 계산대/출구 영역으로 렌더링된다.
  */
 
+import type { IconName } from '@/components/Icon';
+
 export interface StoreZone {
   /** products.ts의 Product.zone과 매칭되는 id. */
   id: string;
@@ -29,7 +31,15 @@ export const DEFAULT_ZONES: StoreZone[] = [
   { id: 'digital', label: '디지털/가전', row: 1, col: 0, color: '#DBEAFE', icon: '🔌' },
   { id: 'beauty', label: '화장품/미용', row: 1, col: 1, color: '#FCE7F3', icon: '💄' },
   { id: 'leisure', label: '패션/취미', row: 1, col: 2, color: '#FDE68A', icon: '🎒' },
-  { id: 'checkout', label: '계산대/입출구', row: 2, col: 0, colSpan: 3, color: '#E5E7EB', icon: '🧾' },
+  {
+    id: 'checkout',
+    label: '계산대/입출구',
+    row: 2,
+    col: 0,
+    colSpan: 3,
+    color: '#E5E7EB',
+    icon: '🧾',
+  },
 ];
 
 /** 매대로 배치할 수 있는 칸 (row 0~1 × col 0~2). 관리자 지도 편집기의 슬롯이다. */
@@ -51,6 +61,26 @@ export const ZONE_COLOR_PALETTE = [
 
 /** 고객의 현재 위치로 가정하는 구역 (입구 근처). */
 export const CURRENT_ZONE_ID = 'checkout';
+
+/**
+ * 구역 id → 선 아이콘. 이모지는 기기·OS마다 모양이 달라 상업 앱처럼 보이지 않아서,
+ * 화면에는 `components/Icon`의 같은 굵기 아이콘을 쓴다. (StoreZone.icon 이모지는
+ * 관리자 편집·목록의 보조 표시로만 남는다)
+ */
+export const ZONE_ICON: Record<string, IconName> = {
+  food: 'zoneFood',
+  beverage: 'zoneBeverage',
+  household: 'zoneHousehold',
+  digital: 'zoneDigital',
+  beauty: 'zoneBeauty',
+  leisure: 'zoneLeisure',
+  checkout: 'zoneCheckout',
+};
+
+/** 관리자가 새로 만든 구역처럼 매핑이 없으면 중립 아이콘으로 떨어진다. */
+export function zoneIconName(zoneId: string): IconName {
+  return ZONE_ICON[zoneId] ?? 'box';
+}
 
 export function findZoneIn(zones: StoreZone[], zoneId: string): StoreZone | undefined {
   return zones.find((zone) => zone.id === zoneId);

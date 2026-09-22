@@ -2,16 +2,49 @@
  * 매장 평면도 — 매장 지도·상품 상세의 위치 안내·관리자 지도 편집이 함께 쓴다.
  *
  * 실제 마트 도면처럼 보이도록 바닥 타일, 두께 있는 외벽, 곤돌라 매대(선반 칸이 보이는),
- * 계산대 레인, 입구 문 스윙까지 그린다. 한글 라벨은 SVG 위에 RN Text로 겹쳐 올린다
- * (RN SVG의 Text는 폰트 렌더가 기기마다 다르다).
+ * 계산대 레인, 카트 보관소, 입구 매트와 문 스윙까지 그린다. 한글 라벨은 SVG 위에 RN
+ * Text로 겹쳐 올린다 (RN SVG의 Text는 폰트 렌더가 기기마다 다르다).
+ *
+ * 움직이는 것들(경로 그리기, 카트 주행, 현위치 펄스, 목적지 핀 드롭)은 전부 reanimated로
+ * UI 스레드에서 돈다. 지도를 띄운 화면이 목록·SSE로 바쁜 와중에도 끊기지 않게 하려는 것이다.
  *
  * 좌표계는 viewBox 100 × 120(세로형) 고정이며, 아래 상수를 화면들이 공유한다.
  */
+import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Defs, G, Line, LinearGradient, Path, Pattern, Polyline, Rect, Stop } from 'react-native-svg';
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedProps,
+  useDerivedValue,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, {
+  Circle,
+  Defs,
+  G,
+  Line,
+  LinearGradient,
+  Path,
+  Pattern,
+  RadialGradient,
+  Rect,
+  Stop,
+} from 'react-native-svg';
 
 import { useTheme } from '@/context/ModeContext';
-import { SHELF_ROWS, type StoreZone } from '@/lib/mock/storeMap';
+import { SHELF_ROWS, zoneIconName, type StoreZone } from '@/lib/mock/storeMap';
+
+import { Icon } from './Icon';
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const AnimatedG = Animated.createAnimatedComponent(G);
 
 // ── 매장 평면도 좌표계 ─────────────────────────────────────────────────
 export const VB_W = 100;
@@ -22,7 +55,7 @@ export const COL_X: Record<number, number> = { 0: 11, 1: 39, 2: 67 }; // 선반 
 export const ROW_Y: Record<number, number> = { 0: 12, 1: 52 }; // 선반 상단 y
 export const MAIN_AISLE_Y = 90; // 선반 앞 메인 통로
 export const MID_AISLE_Y = 47; // 위/아래 선반 사이 통로
-export const ENTRANCE = { x: 50, y: 95 }; // 현위치(입구 앞)
+export const ENTRANCE = { x: 50, y: 93 }; // 현위치(입구 앞) — 펄스 링이 계산대에 닿지 않는 높이
 
 export interface Shelf {
   id: string;
@@ -87,6 +120,26 @@ function pct(v: number, span: number) {
   return `${(v / span) * 100}%` as const;
 }
 
+/** 경로를 SVG path 문자열과 누적 길이로 바꾼다(그리기·주행 애니메이션 공용). */
+function measureRoute(route: number[][] | null | undefined) {
+  if (!route || route.length < 2) return null;
+  const flat: number[] = [];
+  const lengths: number[] = [];
+  let total = 0;
+  for (let i = 0; i < route.length; i += 1) {
+    flat.push(route[i][0], route[i][1]);
+    if (i > 0) {
+      const dx = route[i][0] - route[i - 1][0];
+      const dy = route[i][1] - route[i - 1][1];
+      const len = Math.hypot(dx, dy);
+      lengths.push(len);
+      total += len;
+    }
+  }
+  const d = route.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]} ${p[1]}`).join(' ');
+  return { d, flat, lengths, total };
+}
+
 export interface LegendItem {
   label: string;
   color: string;
@@ -104,6 +157,8 @@ export function StoreMap({
   onZonePress,
   showCurrentPin = true,
   legend,
+  /** 구역별 장바구니 담긴 개수 — 지도 위에 배지로 띄운다. */
+  zoneCounts,
 }: {
   zones: StoreZone[];
   route?: number[][] | null;
@@ -112,11 +167,101 @@ export function StoreMap({
   onZonePress?: (zoneId: string) => void;
   showCurrentPin?: boolean;
   legend?: LegendItem[];
+  zoneCounts?: Record<string, number>;
 }) {
   const theme = useTheme();
   const { colors } = theme;
   const shelves = shelvesFromZones(zones);
   const destShelf = destinationZoneId ? shelves.find((s) => s.id === destinationZoneId) : undefined;
+  const measured = useMemo(() => measureRoute(route), [route]);
+  /** 목적지·선택이 있으면 나머지 매대를 살짝 죽여 대비를 준다. */
+  const hasFocus = Boolean(destShelf || selectedZoneId);
+
+  // ── 경로 그리기 + 카트 주행 ──────────────────────────────────────
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    if (!measured) return;
+    progress.value = 0;
+    progress.value = withRepeat(
+      withSequence(
+        withTiming(1, {
+          duration: 2200,
+          easing: Easing.inOut(Easing.cubic),
+          reduceMotion: ReduceMotion.System,
+        }),
+        // 끝에서 잠깐 머물렀다가 다시 입구에서 출발한다.
+        withDelay(900, withTiming(1, { duration: 0 })),
+      ),
+      -1,
+      false,
+    );
+  }, [measured, progress]);
+
+  const total = measured?.total ?? 0;
+  const routeProps = useAnimatedProps(() => ({
+    strokeDashoffset: total * (1 - progress.value),
+  }));
+
+  const flat = measured?.flat ?? [];
+  const lengths = measured?.lengths ?? [];
+  /** 진행률(0~1)을 경로 위 좌표로 변환한다. */
+  const cartPoint = useDerivedValue(() => {
+    if (lengths.length === 0) return { x: ENTRANCE.x, y: ENTRANCE.y };
+    let remain = progress.value * total;
+    for (let i = 0; i < lengths.length; i += 1) {
+      if (remain <= lengths[i] || i === lengths.length - 1) {
+        const t = lengths[i] === 0 ? 0 : Math.min(1, remain / lengths[i]);
+        const x1 = flat[i * 2];
+        const y1 = flat[i * 2 + 1];
+        const x2 = flat[(i + 1) * 2];
+        const y2 = flat[(i + 1) * 2 + 1];
+        return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
+      }
+      remain -= lengths[i];
+    }
+    return { x: ENTRANCE.x, y: ENTRANCE.y };
+  }, [flat, lengths, total]);
+
+  const cartProps = useAnimatedProps(() => ({
+    transform: `translate(${cartPoint.value.x}, ${cartPoint.value.y})`,
+  }));
+
+  // ── 현위치 펄스 ────────────────────────────────────────────────
+  const pulse = useSharedValue(0);
+  useEffect(() => {
+    if (!showCurrentPin) return;
+    pulse.value = withRepeat(
+      withTiming(1, {
+        duration: 1800,
+        easing: Easing.out(Easing.quad),
+        reduceMotion: ReduceMotion.System,
+      }),
+      -1,
+      false,
+    );
+  }, [showCurrentPin, pulse]);
+
+  const pulseProps = useAnimatedProps(() => ({
+    // 최대 반경을 7로 묶어 아래 계산대(y=101)와 겹치지 않게 한다.
+    r: 3.2 + pulse.value * 3.8,
+    opacity: 0.28 * (1 - pulse.value),
+  }));
+
+  // ── 목적지 핀 드롭 ─────────────────────────────────────────────
+  const pinDrop = useSharedValue(0);
+  useEffect(() => {
+    if (!destShelf) return;
+    pinDrop.value = 0;
+    pinDrop.value = withDelay(
+      120,
+      withSpring(1, { damping: 9, stiffness: 140, reduceMotion: ReduceMotion.System }),
+    );
+  }, [destShelf?.id, pinDrop]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pinProps = useAnimatedProps(() => ({
+    transform: `translate(0, ${(1 - pinDrop.value) * -14})`,
+    opacity: Math.min(1, pinDrop.value * 2),
+  }));
 
   return (
     <View style={{ gap: 10 }}>
@@ -133,10 +278,56 @@ export function StoreMap({
               <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.85} />
               <Stop offset="1" stopColor="#FFFFFF" stopOpacity={0.1} />
             </LinearGradient>
+            {/* 천장 조명 — 매장 안쪽이 밝아 보이게 */}
+            <RadialGradient id="ceiling" cx="50%" cy="34%" r="62%">
+              <Stop offset="0" stopColor="#FFFFFF" stopOpacity={0.9} />
+              <Stop offset="1" stopColor="#E8EDF5" stopOpacity={0.25} />
+            </RadialGradient>
           </Defs>
 
           {/* 바닥 */}
           <Rect x={4} y={4} width={92} height={112} rx={5} fill="url(#floor)" />
+          <Rect x={4} y={4} width={92} height={112} rx={5} fill="url(#ceiling)" />
+
+          {/* 통로 가이드 — 실제 마트 바닥의 동선 라인 */}
+          <G opacity={0.5}>
+            <Line
+              x1={8}
+              y1={MID_AISLE_Y}
+              x2={92}
+              y2={MID_AISLE_Y}
+              stroke="#DCE3EC"
+              strokeWidth={0.6}
+              strokeDasharray="2,2.4"
+            />
+            <Line
+              x1={8}
+              y1={MAIN_AISLE_Y}
+              x2={92}
+              y2={MAIN_AISLE_Y}
+              stroke="#DCE3EC"
+              strokeWidth={0.6}
+              strokeDasharray="2,2.4"
+            />
+            <Line
+              x1={36}
+              y1={10}
+              x2={36}
+              y2={MAIN_AISLE_Y}
+              stroke="#DCE3EC"
+              strokeWidth={0.6}
+              strokeDasharray="2,2.4"
+            />
+            <Line
+              x1={64}
+              y1={10}
+              x2={64}
+              y2={MAIN_AISLE_Y}
+              stroke="#DCE3EC"
+              strokeWidth={0.6}
+              strokeDasharray="2,2.4"
+            />
+          </G>
 
           {/* 외벽 (두께감) */}
           <Rect
@@ -149,21 +340,110 @@ export function StoreMap({
             stroke="#CBD5E1"
             strokeWidth={2.6}
           />
-          <Rect x={4} y={4} width={92} height={112} rx={5} fill="none" stroke="#94A3B8" strokeWidth={0.6} />
+          <Rect
+            x={4}
+            y={4}
+            width={92}
+            height={112}
+            rx={5}
+            fill="none"
+            stroke="#94A3B8"
+            strokeWidth={0.6}
+          />
 
-          {/* 입구 개구부 — 벽을 끊고 문 스윙을 그린다 */}
+          {/* 입구 — 벽을 끊고 매트 + 문 스윙 */}
           <Rect x={41} y={113} width={18} height={5} fill="#FFFFFF" />
-          <Path d="M41 116 A 18 18 0 0 1 59 116" fill="none" stroke="#CBD5E1" strokeWidth={0.7} strokeDasharray="1.6,1.4" />
-          <Path d="M50 108 L50 100 M47 103 L50 100 L53 103" stroke={colors.primary} strokeWidth={1.1} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <Rect
+            x={40}
+            y={108.5}
+            width={20}
+            height={4.5}
+            rx={1}
+            fill={colors.primary}
+            opacity={0.1}
+          />
+          <Path
+            d="M41 116 A 18 18 0 0 1 59 116"
+            fill="none"
+            stroke="#CBD5E1"
+            strokeWidth={0.7}
+            strokeDasharray="1.6,1.4"
+          />
+          <Path
+            d="M50 108 L50 100 M47 103 L50 100 L53 103"
+            stroke={colors.primary}
+            strokeWidth={1.1}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* 카트 보관소 — 입구 옆 디테일 */}
+          <G opacity={0.55}>
+            {[0, 1, 2].map((i) => (
+              <Rect
+                key={i}
+                x={8 + i * 2.2}
+                y={104}
+                width={6}
+                height={7}
+                rx={1}
+                fill="none"
+                stroke="#B6C2D1"
+                strokeWidth={0.6}
+              />
+            ))}
+          </G>
 
           {/* 계산대 레인 3개 */}
           <G>
             {[16, 42, 68].map((lx) => (
               <G key={lx}>
                 {/* 컨베이어 */}
-                <Rect x={lx} y={101} width={16} height={4.5} rx={1.2} fill="#E2E8F0" stroke="#CBD5E1" strokeWidth={0.4} />
+                <Rect
+                  x={lx}
+                  y={101}
+                  width={16}
+                  height={4.5}
+                  rx={1.2}
+                  fill="#E2E8F0"
+                  stroke="#CBD5E1"
+                  strokeWidth={0.4}
+                />
+                <Line
+                  x1={lx + 4}
+                  y1={101}
+                  x2={lx + 4}
+                  y2={105.5}
+                  stroke="#CBD5E1"
+                  strokeWidth={0.35}
+                />
+                <Line
+                  x1={lx + 8}
+                  y1={101}
+                  x2={lx + 8}
+                  y2={105.5}
+                  stroke="#CBD5E1"
+                  strokeWidth={0.35}
+                />
+                <Line
+                  x1={lx + 12}
+                  y1={101}
+                  x2={lx + 12}
+                  y2={105.5}
+                  stroke="#CBD5E1"
+                  strokeWidth={0.35}
+                />
                 {/* 계산기 */}
-                <Rect x={lx + 16.5} y={100} width={4} height={6.5} rx={1} fill={colors.primary} opacity={0.75} />
+                <Rect
+                  x={lx + 16.5}
+                  y={100}
+                  width={4}
+                  height={6.5}
+                  rx={1}
+                  fill={colors.primary}
+                  opacity={0.75}
+                />
               </G>
             ))}
           </G>
@@ -172,67 +452,176 @@ export function StoreMap({
           {shelves.map((s) => {
             const isDestination = destShelf?.id === s.id;
             const isSelected = selectedZoneId === s.id;
+            const isFocused = isDestination || isSelected;
             const stroke = isDestination ? colors.danger : isSelected ? colors.primary : '#94A3B8';
-            const strokeW = isDestination || isSelected ? 1.8 : 0.7;
+            const strokeW = isFocused ? 1.8 : 0.7;
             return (
-              <G key={s.id}>
+              <G key={s.id} opacity={hasFocus && !isFocused ? 0.45 : 1}>
                 {/* 바닥 그림자 */}
-                <Rect x={s.x + 1} y={s.y + 2} width={SHELF_W} height={SHELF_H} rx={2} fill="#0F172A" opacity={0.06} />
+                <Rect
+                  x={s.x + 1}
+                  y={s.y + 2}
+                  width={SHELF_W}
+                  height={SHELF_H}
+                  rx={2}
+                  fill="#0F172A"
+                  opacity={0.06}
+                />
+                {/* 포커스 글로우 */}
+                {isFocused ? (
+                  <Rect
+                    x={s.x - 2}
+                    y={s.y - 2}
+                    width={SHELF_W + 4}
+                    height={SHELF_H + 4}
+                    rx={4}
+                    fill={stroke}
+                    opacity={0.12}
+                  />
+                ) : null}
                 {/* 몸체 */}
-                <Rect x={s.x} y={s.y} width={SHELF_W} height={SHELF_H} rx={2} fill={s.color} stroke={stroke} strokeWidth={strokeW} />
+                <Rect
+                  x={s.x}
+                  y={s.y}
+                  width={SHELF_W}
+                  height={SHELF_H}
+                  rx={2}
+                  fill={s.color}
+                  stroke={stroke}
+                  strokeWidth={strokeW}
+                />
                 {/* 선반 칸 — 곤돌라처럼 보이게 */}
-                <Line x1={s.x + 1.5} y1={s.y + SHELF_H * 0.36} x2={s.x + SHELF_W - 1.5} y2={s.y + SHELF_H * 0.36} stroke="#FFFFFF" strokeWidth={0.9} opacity={0.75} />
-                <Line x1={s.x + 1.5} y1={s.y + SHELF_H * 0.62} x2={s.x + SHELF_W - 1.5} y2={s.y + SHELF_H * 0.62} stroke="#FFFFFF" strokeWidth={0.9} opacity={0.75} />
+                <Line
+                  x1={s.x + 1.5}
+                  y1={s.y + SHELF_H * 0.36}
+                  x2={s.x + SHELF_W - 1.5}
+                  y2={s.y + SHELF_H * 0.36}
+                  stroke="#FFFFFF"
+                  strokeWidth={0.9}
+                  opacity={0.75}
+                />
+                <Line
+                  x1={s.x + 1.5}
+                  y1={s.y + SHELF_H * 0.62}
+                  x2={s.x + SHELF_W - 1.5}
+                  y2={s.y + SHELF_H * 0.62}
+                  stroke="#FFFFFF"
+                  strokeWidth={0.9}
+                  opacity={0.75}
+                />
+                {/* 진열 상품 느낌의 칸 나눔 */}
+                <G opacity={0.35}>
+                  {[0.28, 0.5, 0.72].map((f) => (
+                    <Line
+                      key={f}
+                      x1={s.x + SHELF_W * f}
+                      y1={s.y + 1.5}
+                      x2={s.x + SHELF_W * f}
+                      y2={s.y + SHELF_H - 1.5}
+                      stroke="#FFFFFF"
+                      strokeWidth={0.5}
+                    />
+                  ))}
+                </G>
                 {/* 상판 광택 */}
-                <Rect x={s.x} y={s.y} width={SHELF_W} height={SHELF_H * 0.3} rx={2} fill="url(#shelfTop)" />
+                <Rect
+                  x={s.x}
+                  y={s.y}
+                  width={SHELF_W}
+                  height={SHELF_H * 0.3}
+                  rx={2}
+                  fill="url(#shelfTop)"
+                />
               </G>
             );
           })}
 
-          {/* 경로 — 흰 테두리를 깔아 바닥과 분리 */}
-          {route && route.length > 1 ? (
+          {/* 경로 — 흰 테두리를 깔고, 파란 선이 입구부터 그려진다 */}
+          {measured ? (
             <>
-              <Polyline
-                points={route.map((p) => p.join(',')).join(' ')}
+              <Path
+                d={measured.d}
                 fill="none"
                 stroke="#FFFFFF"
-                strokeWidth={4.4}
+                strokeWidth={3.8}
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                opacity={0.95}
               />
-              <Polyline
-                points={route.map((p) => p.join(',')).join(' ')}
+              <AnimatedPath
+                d={measured.d}
                 fill="none"
                 stroke={colors.primary}
                 strokeWidth={2.4}
-                strokeDasharray="3.4,2.6"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                strokeDasharray={measured.total}
+                animatedProps={routeProps}
               />
             </>
           ) : null}
 
-          {/* 현위치 */}
+          {/* 현위치 — 펄스 링 + 점 */}
           {showCurrentPin ? (
             <>
+              <AnimatedCircle
+                cx={ENTRANCE.x}
+                cy={ENTRANCE.y}
+                fill={colors.primary}
+                animatedProps={pulseProps}
+              />
               <Circle cx={ENTRANCE.x} cy={ENTRANCE.y} r={6} fill={colors.primary} opacity={0.14} />
-              <Circle cx={ENTRANCE.x} cy={ENTRANCE.y} r={3.2} fill={colors.primary} stroke="#FFFFFF" strokeWidth={1} />
+              <Circle
+                cx={ENTRANCE.x}
+                cy={ENTRANCE.y}
+                r={3.2}
+                fill={colors.primary}
+                stroke="#FFFFFF"
+                strokeWidth={1}
+              />
             </>
           ) : null}
 
-          {/* 목적지 핀 */}
+          {/* 경로를 따라 달리는 카트 */}
+          {measured ? (
+            <AnimatedG animatedProps={cartProps}>
+              <Circle r={3.6} fill="#FFFFFF" opacity={0.9} />
+              <Circle r={2.6} fill={colors.primary} />
+              <Path d="M-1.1 -0.7 h2.4 l-0.4 1.3 h-1.6 z" fill="#FFFFFF" />
+            </AnimatedG>
+          ) : null}
+
+          {/* 목적지 핀 — 위에서 떨어져 꽂힌다 */}
           {destShelf ? (
-            <>
-              <Circle cx={destShelf.cx} cy={destShelf.cy} r={6.5} fill={colors.danger} opacity={0.16} />
+            <AnimatedG animatedProps={pinProps}>
+              {/* 매대 한가운데에 꽂으면 구역 이름을 가린다 → 상단 모서리에 세운다. */}
               <Path
-                d={`M${destShelf.cx} ${destShelf.cy + 4.5} L${destShelf.cx - 3.2} ${destShelf.cy - 1.4} A 3.2 3.2 0 1 1 ${destShelf.cx + 3.2} ${destShelf.cy - 1.4} Z`}
+                d={`M${destShelf.cx} ${destShelf.y + 3.4} L${destShelf.cx - 3.2} ${destShelf.y - 2.5} A 3.2 3.2 0 1 1 ${destShelf.cx + 3.2} ${destShelf.y - 2.5} Z`}
                 fill={colors.danger}
                 stroke="#FFFFFF"
-                strokeWidth={0.7}
+                strokeWidth={0.8}
               />
-              <Circle cx={destShelf.cx} cy={destShelf.cy - 2.2} r={1.15} fill="#FFFFFF" />
-            </>
+              <Circle cx={destShelf.cx} cy={destShelf.y - 3.2} r={1.15} fill="#FFFFFF" />
+            </AnimatedG>
           ) : null}
+
+          {/* 장바구니 담긴 개수 배지 */}
+          {zoneCounts
+            ? shelves
+                .filter((s) => (zoneCounts[s.id] ?? 0) > 0)
+                .map((s) => (
+                  <G key={`count-${s.id}`}>
+                    <Circle
+                      cx={s.x + SHELF_W - 3}
+                      cy={s.y + 3}
+                      r={4.6}
+                      fill={colors.success}
+                      stroke="#FFFFFF"
+                      strokeWidth={1}
+                    />
+                  </G>
+                ))
+            : null}
         </Svg>
 
         {/* 매대 라벨 (SVG 위 RN 오버레이 — 탭 가능하면 Pressable) */}
@@ -243,18 +632,29 @@ export function StoreMap({
             width: pct(SHELF_W, VB_W),
             height: pct(SHELF_H, VB_H),
           } as const;
+          const isFocused = destShelf?.id === s.id || selectedZoneId === s.id;
+          // 선반 칸 줄무늬 위에 글자가 바로 놓이면 읽기 어렵다 → 반투명 판을 깔고 그 위에 얹는다.
           const content = (
-            <Text
-              style={{
-                fontSize: theme.fontBody - 5,
-                color: '#334155',
-                fontWeight: '700',
-                textAlign: 'center',
-              }}
-              numberOfLines={2}
-            >
-              {s.label}
-            </Text>
+            <View style={styles.labelPlate}>
+              <Icon
+                name={zoneIconName(s.id)}
+                size={theme.fontBody + 3}
+                color={isFocused ? colors.text : '#64748B'}
+                strokeWidth={1.8}
+              />
+              <Text
+                style={{
+                  marginTop: 3,
+                  fontSize: theme.fontBody - 5,
+                  color: '#334155',
+                  fontWeight: '700',
+                  textAlign: 'center',
+                }}
+                numberOfLines={2}
+              >
+                {s.label}
+              </Text>
+            </View>
           );
           return onZonePress ? (
             <Pressable
@@ -273,16 +673,45 @@ export function StoreMap({
           );
         })}
 
-        <View
-          pointerEvents="none"
-          style={[styles.counterLabel, { top: pct(93, VB_H) }]}
-        >
-          <Text style={{ fontSize: theme.fontBody - 6, color: colors.textMuted, fontWeight: '700', letterSpacing: 0.4 }}>
+        {/* 담긴 개수 숫자 — SVG 배지 위에 얹는다(폰트 렌더 일관성) */}
+        {zoneCounts
+          ? shelves
+              .filter((s) => (zoneCounts[s.id] ?? 0) > 0)
+              .map((s) => (
+                <View
+                  key={`badge-${s.id}`}
+                  pointerEvents="none"
+                  style={[
+                    styles.countBadge,
+                    { left: pct(s.x + SHELF_W - 7.6, VB_W), top: pct(s.y - 1.6, VB_H) },
+                  ]}
+                >
+                  <Text
+                    style={{ fontSize: theme.fontBody - 7, color: '#FFFFFF', fontWeight: '800' }}
+                  >
+                    {zoneCounts[s.id]}
+                  </Text>
+                </View>
+              ))
+          : null}
+
+        {/* 가운데는 현위치 펄스 자리라 계산대 라벨은 왼쪽으로 뺀다. */}
+        <View pointerEvents="none" style={[styles.counterLabel, { top: pct(96, VB_H) }]}>
+          <Text
+            style={{
+              fontSize: theme.fontBody - 6,
+              color: colors.textMuted,
+              fontWeight: '700',
+              letterSpacing: 0.4,
+            }}
+          >
             계산대
           </Text>
         </View>
         <View pointerEvents="none" style={[styles.entranceLabel, { top: pct(108.5, VB_H) }]}>
-          <Text style={{ fontSize: theme.fontBody - 6, color: colors.primary, fontWeight: '800' }}>입구</Text>
+          <Text style={{ fontSize: theme.fontBody - 6, color: colors.primary, fontWeight: '800' }}>
+            입구
+          </Text>
         </View>
       </View>
 
@@ -290,8 +719,15 @@ export function StoreMap({
         <View style={styles.legendRow}>
           {legend.map((item) => (
             <View key={item.label} style={styles.legendItem}>
-              <View style={[item.line ? styles.legendLine : styles.legendDot, { backgroundColor: item.color }]} />
-              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>{item.label}</Text>
+              <View
+                style={[
+                  item.line ? styles.legendLine : styles.legendDot,
+                  { backgroundColor: item.color },
+                ]}
+              />
+              <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}>
+                {item.label}
+              </Text>
             </View>
           ))}
         </View>
@@ -302,8 +738,28 @@ export function StoreMap({
 
 const styles = StyleSheet.create({
   mapBox: { width: '100%', aspectRatio: VB_W / VB_H, position: 'relative', overflow: 'hidden' },
-  shelfLabel: { position: 'absolute', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
-  counterLabel: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  shelfLabel: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  labelPlate: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.82)',
+  },
+  countBadge: {
+    position: 'absolute',
+    width: '9%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  counterLabel: { position: 'absolute', left: '7%', alignItems: 'flex-start' },
   entranceLabel: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   legendRow: { flexDirection: 'row', justifyContent: 'center', gap: 18, flexWrap: 'wrap' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },

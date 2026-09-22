@@ -10,7 +10,9 @@ import { Card } from '@/components/Card';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextField } from '@/components/TextField';
 import { useCatalog, type ProductDraft } from '@/context/CatalogContext';
+import { Icon } from '@/components/Icon';
 import { useTheme } from '@/context/ModeContext';
+import { zoneIconName } from '@/lib/mock/storeMap';
 import {
   fetchProductCategories,
   type ApiProductCategory,
@@ -317,7 +319,12 @@ function ProductForm({ editing }: { editing?: Product }) {
                     },
                   ]}
                 >
-                  <Text style={{ fontSize: 18 }}>{z.icon}</Text>
+                  <Icon
+                    name={zoneIconName(z.id)}
+                    size={theme.fontBody + 3}
+                    color={active ? colors.primaryText : '#334155'}
+                    strokeWidth={1.9}
+                  />
                   <Text
                     style={{
                       fontSize: theme.fontBody - 3,
