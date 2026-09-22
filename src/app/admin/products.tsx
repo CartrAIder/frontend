@@ -8,6 +8,7 @@ import { AppBar } from '@/components/AppBar';
 import { BrandRefreshLoader } from '@/components/BrandLoader';
 import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Card } from '@/components/Card';
+import { ProductImage } from '@/components/ProductImage';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { useCatalog } from '@/context/CatalogContext';
 import { useTheme } from '@/context/ModeContext';
@@ -25,7 +26,10 @@ export default function AdminProductsScreen() {
     const q = query.trim().toLowerCase();
     if (!q) return products;
     return products.filter(
-      (p) => p.name.toLowerCase().includes(q) || (p.brand ?? '').toLowerCase().includes(q) || p.id.includes(q),
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.brand ?? '').toLowerCase().includes(q) ||
+        p.id.includes(q),
     );
   }, [products, query]);
 
@@ -49,7 +53,10 @@ export default function AdminProductsScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="상품 관리" />
       <ScrollView
         contentContainerStyle={{ padding: 20, gap: theme.spacing }}
@@ -60,7 +67,16 @@ export default function AdminProductsScreen() {
 
         <PrimaryButton title="새 상품 등록" onPress={() => router.push('/admin/product-form')} />
 
-        <View style={[styles.searchRow, { backgroundColor: colors.surface, borderRadius: theme.radiusSm, minHeight: theme.minTouch }]}>
+        <View
+          style={[
+            styles.searchRow,
+            {
+              backgroundColor: colors.surface,
+              borderRadius: theme.radiusSm,
+              minHeight: theme.minTouch,
+            },
+          ]}
+        >
           <Icon name="search" size={theme.fontBody + 2} color={colors.textMuted} />
           <TextInput
             value={query}
@@ -81,13 +97,27 @@ export default function AdminProductsScreen() {
           return (
             <Card key={product.id} style={{ gap: 10 }}>
               <View style={styles.head}>
-                <Text style={{ fontSize: 26 }}>{product.icon}</Text>
+                <ProductImage
+                  id={product.id}
+                  name={product.name}
+                  zone={product.zone}
+                  uri={product.imageUrl}
+                  size={40}
+                  radius={10}
+                  dimmed={soldOut}
+                />
                 <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }} numberOfLines={1}>
+                  <Text
+                    style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '800' }}
+                    numberOfLines={1}
+                  >
                     {product.name}
                   </Text>
-                  <Text style={{ fontSize: theme.fontBody - 5, color: colors.textMuted }} numberOfLines={1}>
-                    {product.id} · {zone ? `${zone.icon} ${zone.label}` : '⚠️ 구역 미지정'}
+                  <Text
+                    style={{ fontSize: theme.fontBody - 5, color: colors.textMuted }}
+                    numberOfLines={1}
+                  >
+                    {product.id} · {zone ? zone.label : '구역 미지정'}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 3 }}>
@@ -95,8 +125,19 @@ export default function AdminProductsScreen() {
                     ₩{product.unitPrice.toLocaleString('ko-KR')}
                   </Text>
                   {product.discountPercent ? (
-                    <View style={[styles.tag, { backgroundColor: colors.warningSurface, borderRadius: 6 }]}>
-                      <Text style={{ fontSize: theme.fontBody - 6, color: colors.warningText, fontWeight: '800' }}>
+                    <View
+                      style={[
+                        styles.tag,
+                        { backgroundColor: colors.warningSurface, borderRadius: 6 },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          fontSize: theme.fontBody - 6,
+                          color: colors.warningText,
+                          fontWeight: '800',
+                        }}
+                      >
                         {product.discountPercent}% 할인
                       </Text>
                     </View>
@@ -105,8 +146,20 @@ export default function AdminProductsScreen() {
               </View>
 
               {/* 재고 빠른 조절 — 목록에서 바로 재고만 고칠 수 있게 */}
-              <View style={[styles.stockRow, { backgroundColor: colors.surface, borderRadius: theme.radiusSm }]}>
-                <Text style={{ flex: 1, fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '700' }}>
+              <View
+                style={[
+                  styles.stockRow,
+                  { backgroundColor: colors.surface, borderRadius: theme.radiusSm },
+                ]}
+              >
+                <Text
+                  style={{
+                    flex: 1,
+                    fontSize: theme.fontBody - 2,
+                    color: colors.textMuted,
+                    fontWeight: '700',
+                  }}
+                >
                   재고
                 </Text>
                 <StepButton
@@ -125,7 +178,10 @@ export default function AdminProductsScreen() {
                 >
                   {soldOut ? '품절' : product.stock}
                 </Text>
-                <StepButton label="+" onPress={() => void handleStock(product.id, product.stock + 1)} />
+                <StepButton
+                  label="+"
+                  onPress={() => void handleStock(product.id, product.stock + 1)}
+                />
               </View>
 
               <View style={styles.actionRow}>
@@ -148,7 +204,9 @@ export default function AdminProductsScreen() {
 
         {filtered.length === 0 && (
           <View style={styles.empty}>
-            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>검색 결과가 없어요.</Text>
+            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>
+              검색 결과가 없어요.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -156,7 +214,15 @@ export default function AdminProductsScreen() {
   );
 }
 
-function StepButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+function StepButton({
+  label,
+  onPress,
+  disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
   const theme = useTheme();
   const { colors } = theme;
   return (
@@ -175,7 +241,9 @@ function StepButton({ label, onPress, disabled }: { label: string; onPress: () =
         },
       ]}
     >
-      <Text style={{ fontSize: theme.fontButton, color: colors.text, fontWeight: '800' }}>{label}</Text>
+      <Text style={{ fontSize: theme.fontButton, color: colors.text, fontWeight: '800' }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -211,9 +279,23 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   tag: { paddingHorizontal: 6, paddingVertical: 2 },
-  stockRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  stockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   stepButton: { width: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
   actionRow: { flexDirection: 'row', gap: 8 },
-  actionButton: { flex: 1, flexDirection: 'row', gap: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
   empty: { paddingVertical: 40, alignItems: 'center' },
 });

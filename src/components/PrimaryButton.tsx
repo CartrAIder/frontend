@@ -50,7 +50,10 @@ export function PrimaryButton({
   };
 
   const isDisabled = disabled || loading;
-  const backgroundColor = isDisabled && variant !== 'neutral' ? colors.border : bgByVariant[variant];
+  const backgroundColor =
+    isDisabled && variant !== 'neutral' ? colors.border : bgByVariant[variant];
+  // 밝은 회색 버튼(neutral) 위에서는 흰 물결이 안 보인다.
+  const rippleColor = variant === 'neutral' ? colors.ripple : colors.rippleOnPrimary;
 
   return (
     <Pressable
@@ -58,6 +61,8 @@ export function PrimaryButton({
       disabled={isDisabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
+      // 안드로이드는 눌림 표현이 물결이다. opacity만 주면 "안 눌린 것 같다"는 인상을 준다.
+      android_ripple={isDisabled ? undefined : { color: rippleColor, foreground: true }}
       style={({ pressed }) => [
         styles.button,
         {
@@ -74,7 +79,9 @@ export function PrimaryButton({
       ) : (
         <View style={styles.row}>
           {leadingIcon ? <Text style={{ fontSize: theme.fontButton }}>{leadingIcon}</Text> : null}
-          <Text style={{ fontSize: theme.fontButton, color: fgByVariant[variant], fontWeight: '700' }}>
+          <Text
+            style={{ fontSize: theme.fontButton, color: fgByVariant[variant], fontWeight: '700' }}
+          >
             {title}
           </Text>
         </View>
@@ -84,6 +91,12 @@ export function PrimaryButton({
 }
 
 const styles = StyleSheet.create({
-  button: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  // overflow: hidden 이 있어야 물결이 버튼 모서리(radius) 밖으로 새지 않는다.
+  button: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    overflow: 'hidden',
+  },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

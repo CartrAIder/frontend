@@ -87,7 +87,13 @@ function cartReducer(state: CartState, action: CartAction): CartState {
           const prev = state.items.find((p) => p.id === it.id);
           const delta = it.qty - (prev?.qty ?? 0);
           if (delta > 0) {
-            lastScanned = { id: it.id, name: it.name, qty: delta, lineTotal: it.unitPrice * delta, scannedAt: Date.now() };
+            lastScanned = {
+              id: it.id,
+              name: it.name,
+              qty: delta,
+              lineTotal: it.unitPrice * delta,
+              scannedAt: Date.now(),
+            };
             break;
           }
         }
@@ -128,10 +134,17 @@ const CartContext = createContext<CartContextValue | undefined>(undefined);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, initialState);
   const { cartId, isConnected, isRestoring: sessionRestoring, refreshSession } = useCartSession();
+  // 수량 변경·삭제 콜백이 항상 최신 값을 보도록 ref에 담아둔다(콜백 identity는 안정 유지).
+  // 렌더 중에 ref를 건드리면 React Compiler가 재실행·폐기하는 렌더에서 값이 어긋날 수 있어
+  // 커밋 이후에 맞춘다. 읽는 쪽은 전부 이벤트 핸들러라 항상 커밋 뒤에 실행된다.
   const itemsRef = useRef(state.items);
-  itemsRef.current = state.items;
   const cartIdRef = useRef(cartId);
-  cartIdRef.current = cartId;
+  useEffect(() => {
+    itemsRef.current = state.items;
+  }, [state.items]);
+  useEffect(() => {
+    cartIdRef.current = cartId;
+  }, [cartId]);
 
   // 마운트 시 저장된 장바구니 복원(즉시 표시용, 연결되면 cart-init로 정정됨).
   useEffect(() => {
@@ -224,31 +237,40 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [refreshSession],
   );
 
-  const increaseQty = useCallback((itemId: string) => {
-    const item = itemsRef.current.find((i) => i.id === itemId);
-    if (!item) return;
-    const next = item.qty + 1;
-    dispatch({ type: 'SET_QTY', itemId, qty: next }); // 낙관적, SSE 스냅샷이 최종 정정
-    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
-  }, [revertOnFailure]);
+  const increaseQty = useCallback(
+    (itemId: string) => {
+      const item = itemsRef.current.find((i) => i.id === itemId);
+      if (!item) return;
+      const next = item.qty + 1;
+      dispatch({ type: 'SET_QTY', itemId, qty: next }); // 낙관적, SSE 스냅샷이 최종 정정
+      if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
+    },
+    [revertOnFailure],
+  );
 
-  const decreaseQty = useCallback((itemId: string) => {
-    const item = itemsRef.current.find((i) => i.id === itemId);
-    if (!item) return;
-    if (item.qty <= 1) {
+  const decreaseQty = useCallback(
+    (itemId: string) => {
+      const item = itemsRef.current.find((i) => i.id === itemId);
+      if (!item) return;
+      if (item.qty <= 1) {
+        dispatch({ type: 'REMOVE_ITEM', itemId });
+        if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(revertOnFailure);
+        return;
+      }
+      const next = item.qty - 1;
+      dispatch({ type: 'SET_QTY', itemId, qty: next });
+      if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
+    },
+    [revertOnFailure],
+  );
+
+  const removeItem = useCallback(
+    (itemId: string) => {
       dispatch({ type: 'REMOVE_ITEM', itemId });
       if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(revertOnFailure);
-      return;
-    }
-    const next = item.qty - 1;
-    dispatch({ type: 'SET_QTY', itemId, qty: next });
-    if (cartIdRef.current) setItemQty(cartIdRef.current, itemId, next).catch(revertOnFailure);
-  }, [revertOnFailure]);
-
-  const removeItem = useCallback((itemId: string) => {
-    dispatch({ type: 'REMOVE_ITEM', itemId });
-    if (cartIdRef.current) removeCartItem(cartIdRef.current, itemId).catch(revertOnFailure);
-  }, [revertOnFailure]);
+    },
+    [revertOnFailure],
+  );
 
   const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
 

@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, Image, StyleSheet, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { useTheme } from '@/context/ModeContext';
 
@@ -10,7 +18,8 @@ import { useTheme } from '@/context/ModeContext';
  * "멈춘 건지 도는 건지" 알기 어렵고 앱 정체성도 사라져서, 로고와 함께 진행바를 보여준다.
  *
  * 진행률을 알 수 없는 작업이라 막대가 좌→우로 흐르는 indeterminate 방식이다.
- * RN 내장 Animated + translateX(네이티브 드라이버)라 별도 설정이 필요 없다.
+ * reanimated로 UI 스레드에서 돌리므로, 로더가 도는 동안 JS 스레드가 무거운 일(세션 복원·
+ * 결제 승인 응답 처리)을 해도 막대가 끊기지 않는다.
  */
 
 const TRACK_W = 180;
@@ -18,26 +27,28 @@ const FILL_W = 64;
 
 /** 좌→우로 흐르는 진행바. */
 function ProgressTrack({ tint, track }: { tint: string; track: string }) {
-  const x = useRef(new Animated.Value(-FILL_W)).current;
+  const progress = useSharedValue(0);
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(x, {
-        toValue: TRACK_W,
+    progress.value = withRepeat(
+      withTiming(1, {
         duration: 1100,
         easing: Easing.inOut(Easing.ease),
-        useNativeDriver: true,
+        reduceMotion: ReduceMotion.System,
       }),
+      -1,
+      false,
     );
-    loop.start();
-    return () => loop.stop();
-  }, [x]);
+  }, [progress]);
+
+  // 막대 왼쪽 바깥(-FILL_W)에서 트랙 오른쪽 끝(TRACK_W)까지 흐른다.
+  const slide = useAnimatedStyle(() => ({
+    transform: [{ translateX: -FILL_W + progress.value * (TRACK_W + FILL_W) }],
+  }));
 
   return (
     <View style={[styles.track, { backgroundColor: track }]}>
-      <Animated.View
-        style={[styles.fill, { backgroundColor: tint, transform: [{ translateX: x }] }]}
-      />
+      <Animated.View style={[styles.fill, { backgroundColor: tint }, slide]} />
     </View>
   );
 }
@@ -58,12 +69,24 @@ function Brand({ message, onDark = false }: { message?: string; onDark?: boolean
           resizeMode="contain"
         />
       </View>
-      <Text style={{ fontSize: theme.fontTitle, color: textColor, fontWeight: '800', letterSpacing: -0.4 }}>
+      <Text
+        style={{
+          fontSize: theme.fontTitle,
+          color: textColor,
+          fontWeight: '800',
+          letterSpacing: -0.4,
+        }}
+      >
         CartrAIder
       </Text>
-      <ProgressTrack tint={colors.primary} track={onDark ? 'rgba(255,255,255,0.2)' : colors.border} />
+      <ProgressTrack
+        tint={colors.primary}
+        track={onDark ? 'rgba(255,255,255,0.2)' : colors.border}
+      />
       {message ? (
-        <Text style={{ fontSize: theme.fontBody - 2, color: mutedColor, textAlign: 'center' }}>{message}</Text>
+        <Text style={{ fontSize: theme.fontBody - 2, color: mutedColor, textAlign: 'center' }}>
+          {message}
+        </Text>
       ) : null}
     </View>
   );
@@ -92,7 +115,9 @@ export function BrandRefreshLoader({ visible, message }: { visible: boolean; mes
   if (!visible) return null;
 
   return (
-    <View style={[styles.refreshRow, { backgroundColor: colors.card, borderRadius: theme.radiusSm }]}>
+    <View
+      style={[styles.refreshRow, { backgroundColor: colors.card, borderRadius: theme.radiusSm }]}
+    >
       <View style={[styles.refreshBadge, { backgroundColor: colors.primary }]}>
         <Image
           source={require('../../assets/logo/mark-white-512.png')}
@@ -126,18 +151,30 @@ export function BrandLoaderOverlay({ visible, message }: { visible: boolean; mes
 const styles = StyleSheet.create({
   full: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(15,23,42,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 100,
   },
   brand: { alignItems: 'center', gap: 14, paddingHorizontal: 32 },
-  logoBadge: { width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  logoBadge: {
+    width: 84,
+    height: 84,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logoMark: { width: 52, height: 52 },
   track: { width: TRACK_W, height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
   refreshRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
-  refreshBadge: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  refreshBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   refreshMark: { width: 20, height: 20 },
   fill: { width: FILL_W, height: 4, borderRadius: 2 },
 });

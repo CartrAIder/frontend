@@ -26,7 +26,7 @@
         "android.permission.READ_MEDIA_AUDIO"
       ],
       "package": "com.cartraider.app",
-      "versionCode": 1
+      "versionCode": 2
     },
     "web": {
       "output": "static",
@@ -56,7 +56,10 @@
           "savePhotosPermission": "결제 영수증 이미지를 사진에 저장하기 위해 접근 권한이 필요합니다."
         }
       ],
-      "expo-build-properties"
+      "expo-build-properties",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,

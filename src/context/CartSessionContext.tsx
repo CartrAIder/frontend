@@ -54,8 +54,11 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
   const [isRestoring, setIsRestoring] = useState(true);
   const { isRestoring: authRestoring, isAuthenticated } = useAuth();
   // endSession이 항상 최신 cartId를 참조하도록(콜백 identity는 안정 유지) ref 사용.
+  // 렌더가 아니라 커밋 이후에 맞춘다 — 읽는 쪽은 전부 콜백이라 순서상 문제가 없다.
   const cartIdRef = useRef<string | null>(null);
-  cartIdRef.current = cartId;
+  useEffect(() => {
+    cartIdRef.current = cartId;
+  }, [cartId]);
 
   useEffect(() => {
     loadCartId()
@@ -144,7 +147,16 @@ export function CartSessionProvider({ children }: { children: ReactNode }) {
       endSessionLocally,
       refreshSession,
     }),
-    [cartId, isRestoring, checkoutStatus, pendingOrder, connect, endSession, endSessionLocally, refreshSession],
+    [
+      cartId,
+      isRestoring,
+      checkoutStatus,
+      pendingOrder,
+      connect,
+      endSession,
+      endSessionLocally,
+      refreshSession,
+    ],
   );
 
   return <CartSessionContext.Provider value={value}>{children}</CartSessionContext.Provider>;

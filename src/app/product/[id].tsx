@@ -8,6 +8,7 @@ import { useBrandRefresh } from '@/components/BrandRefresh';
 import { Icon } from '@/components/Icon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProductImage } from '@/components/ProductImage';
+import { ProductDetailSkeleton } from '@/components/Skeleton';
 import { StoreMap, buildRoute, estimateDistanceMeters } from '@/components/StoreMap';
 import { Badge, EmptyState, Price, ProductCard, SectionHeader } from '@/components/commerce';
 import { useCartSession } from '@/context/CartSessionContext';
@@ -26,7 +27,7 @@ export default function ProductDetailScreen() {
   const { colors } = theme;
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { findProduct, findZone, zones, productsInZone, refresh } = useCatalog();
+  const { findProduct, findZone, zones, productsInZone, refresh, isRestoring } = useCatalog();
   const { refreshing, refreshControl } = useBrandRefresh(refresh);
   const { isConnected } = useCartSession();
   // 훅은 early return 앞에서 전부 호출해야 한다(상품을 못 찾는 분기가 아래에 있다).
@@ -35,15 +36,41 @@ export default function ProductDetailScreen() {
 
   const product = id ? findProduct(id) : undefined;
 
+  // 앱을 켜자마자 이 화면으로 들어오면(딥링크·복귀) 카탈로그가 아직 복원 중이라
+  // findProduct가 빈손으로 돌아온다. 그때 "없는 상품"이라고 말하면 거짓말이 된다.
+  if (!product && isRestoring) {
+    return (
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top', 'bottom']}
+      >
+        <AppBar title="상품 정보" />
+        <ScrollView
+          contentContainerStyle={{ padding: GUTTER }}
+          showsVerticalScrollIndicator={false}
+        >
+          <ProductDetailSkeleton imageSize={heroSize} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (!product) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top', 'bottom']}
+      >
         <EmptyState
           title="상품을 찾을 수 없어요"
           description={'삭제되었거나 잘못된 주소입니다.'}
           action={
             <View style={{ marginTop: 8, alignSelf: 'stretch', paddingHorizontal: 40 }}>
-              <PrimaryButton title="상품 목록으로" variant="neutral" onPress={() => router.replace('/products')} />
+              <PrimaryButton
+                title="상품 목록으로"
+                variant="neutral"
+                onPress={() => router.replace('/products')}
+              />
             </View>
           }
         />
@@ -56,10 +83,17 @@ export default function ProductDetailScreen() {
   const soldOut = product.stock === 0;
   const route = zone && zone.row < 2 ? buildRoute(zone.row, zone.col) : null;
   const distance = zone ? estimateDistanceMeters(zone.row, zone.col) : 0;
-  const related = zone ? productsInZone(zone.id).filter((p) => p.id !== product.id).slice(0, 6) : [];
+  const related = zone
+    ? productsInZone(zone.id)
+        .filter((p) => p.id !== product.id)
+        .slice(0, 6)
+    : [];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top', 'bottom']}
+    >
       <AppBar title="상품 상세" />
       <ScrollView
         contentContainerStyle={{ paddingBottom: 24 }}
@@ -83,7 +117,9 @@ export default function ProductDetailScreen() {
           />
           {soldOut ? (
             <View style={styles.soldOutOverlay}>
-              <Text style={{ fontSize: theme.fontTitle, color: '#FFFFFF', fontWeight: '800' }}>품절</Text>
+              <Text style={{ fontSize: theme.fontTitle, color: '#FFFFFF', fontWeight: '800' }}>
+                품절
+              </Text>
             </View>
           ) : null}
         </View>
@@ -91,18 +127,36 @@ export default function ProductDetailScreen() {
         {/* 이름 · 가격 */}
         <View style={{ padding: GUTTER, gap: 10 }}>
           {product.brand ? (
-            <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>
+            <Text
+              style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}
+            >
               {product.brand}
             </Text>
           ) : null}
-          <Text style={{ fontSize: theme.fontTitle - 2, color: colors.text, fontWeight: '700', lineHeight: theme.fontTitle + 6 }}>
+          <Text
+            style={{
+              fontSize: theme.fontTitle - 2,
+              color: colors.text,
+              fontWeight: '700',
+              lineHeight: theme.fontTitle + 6,
+            }}
+          >
             {product.name}
           </Text>
 
-          <Price price={price} original={product.unitPrice} discountPercent={product.discountPercent} size="lg" />
+          <Price
+            price={price}
+            original={product.unitPrice}
+            discountPercent={product.discountPercent}
+            size="lg"
+          />
 
           <View style={styles.badgeRow}>
-            {soldOut ? <Badge label="품절" tone="soldout" /> : <Badge label={`재고 ${product.stock}개`} tone="primary" />}
+            {soldOut ? (
+              <Badge label="품절" tone="soldout" />
+            ) : (
+              <Badge label={`재고 ${product.stock}개`} tone="primary" />
+            )}
             {zone ? <Badge label={`${zone.label} 구역`} /> : null}
             {product.discountPercent ? <Badge label="매장 특가" tone="sale" /> : null}
           </View>
@@ -112,9 +166,17 @@ export default function ProductDetailScreen() {
 
         {/* 상품 정보 */}
         <View style={{ padding: GUTTER, gap: 12 }}>
-          <Text style={{ fontSize: theme.fontButton - 2, color: colors.text, fontWeight: '800' }}>상품 정보</Text>
+          <Text style={{ fontSize: theme.fontButton - 2, color: colors.text, fontWeight: '800' }}>
+            상품 정보
+          </Text>
           {product.description ? (
-            <Text style={{ fontSize: theme.fontBody, color: colors.textMuted, lineHeight: theme.fontBody * 1.6 }}>
+            <Text
+              style={{
+                fontSize: theme.fontBody,
+                color: colors.textMuted,
+                lineHeight: theme.fontBody * 1.6,
+              }}
+            >
               {product.description}
             </Text>
           ) : null}
@@ -123,7 +185,9 @@ export default function ProductDetailScreen() {
             {product.discountPercent ? (
               <InfoRow label="정상가" value={`${product.unitPrice.toLocaleString('ko-KR')}원`} />
             ) : null}
-            {zone ? <InfoRow label="매대 위치" value={`${zone.label} · 입구에서 약 ${distance}m`} /> : null}
+            {zone ? (
+              <InfoRow label="매대 위치" value={`${zone.label} · 입구에서 약 ${distance}m`} />
+            ) : null}
             <InfoRow label="재고" value={soldOut ? '품절' : `${product.stock}개`} />
           </View>
         </View>
@@ -133,7 +197,10 @@ export default function ProductDetailScreen() {
           <>
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
             <View style={{ padding: GUTTER, gap: 12 }}>
-              <SectionHeader title="매장 위치" subtitle={`${zone.label} · 입구에서 약 ${distance}m`} />
+              <SectionHeader
+                title="매장 위치"
+                subtitle={`${zone.label} · 입구에서 약 ${distance}m`}
+              />
               <StoreMap zones={zones} route={route} destinationZoneId={zone.id} />
             </View>
           </>
@@ -168,10 +235,15 @@ export default function ProductDetailScreen() {
       </ScrollView>
 
       {/* 하단 고정 CTA */}
-      <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+      <View
+        style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}
+      >
         <Pressable
           onPress={() => router.push('/map')}
-          style={[styles.bottomIconButton, { borderColor: colors.border, borderRadius: theme.radiusSm }]}
+          style={[
+            styles.bottomIconButton,
+            { borderColor: colors.border, borderRadius: theme.radiusSm },
+          ]}
           accessibilityLabel="매장 지도에서 보기"
         >
           <Icon name="map" size={22} color={colors.text} />
@@ -193,8 +265,14 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   const { colors } = theme;
   return (
     <View style={styles.infoRow}>
-      <Text style={{ width: 84, fontSize: theme.fontBody - 2, color: colors.textMuted }}>{label}</Text>
-      <Text style={{ flex: 1, fontSize: theme.fontBody - 2, color: colors.text, fontWeight: '600' }}>{value}</Text>
+      <Text style={{ width: 84, fontSize: theme.fontBody - 2, color: colors.textMuted }}>
+        {label}
+      </Text>
+      <Text
+        style={{ flex: 1, fontSize: theme.fontBody - 2, color: colors.text, fontWeight: '600' }}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -202,7 +280,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   soldOutOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(17,24,39,0.3)',
@@ -219,5 +297,11 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  bottomIconButton: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+  bottomIconButton: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+  },
 });

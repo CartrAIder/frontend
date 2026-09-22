@@ -5,8 +5,9 @@
  * (아이콘·매대 구역·할인·재고)를 barcode 기준 오버레이로 얹어 병합해 보여준다. 고객 화면
  * (상품 보기·매장 지도·길 안내·오늘의 할인)과 관리자 화면이 같은 병합 결과를 본다.
  *
- * - 로그인되면 백엔드 상품을 새로고침한다(상품 조회는 인증 필요).
- * - 오버레이/구역/마지막 상품 캐시는 secure-store에 영속화되어 오프라인·재시작에도 즉시 표시된다.
+ * - 상품 목록은 앱 기동 시 한 번 받는다(조회에 인증이 필요 없다). 이후 갱신은 당겨서
+ *   새로고침·관리자 편집이 직접 refresh()를 호출한다.
+ * - 오버레이/구역/마지막 상품 캐시는 async-storage에 영속화되어 오프라인·재시작에도 즉시 표시된다.
  * - 관리자 쓰기: 등록·가격·판매상태는 백엔드에 반영된다. 재고·구역·아이콘·할인은 백엔드
  *   Product 스키마에 없어 로컬 오버레이에만 남고, 재고는 0 여부만 판매상태로 서버에 전달된다.
  *   이름·카테고리는 백엔드에 수정 API가 없어 로컬 표시만 바뀐다.
@@ -24,7 +25,6 @@ import {
 
 import { Image as ExpoImage } from 'expo-image';
 
-import { useAuth } from '@/context/AuthContext';
 import {
   adminCreateProduct,
   adminUpdateProduct,
@@ -33,7 +33,12 @@ import {
   type ApiProductCategory,
   type ApiProductStatus,
 } from '@/lib/api';
-import { categoryForZone, mergeCatalog, type OverlayMap, type ProductOverlay } from '@/lib/catalog/overlay';
+import {
+  categoryForZone,
+  mergeCatalog,
+  type OverlayMap,
+  type ProductOverlay,
+} from '@/lib/catalog/overlay';
 import { clearCatalog, loadCatalog, saveCatalog } from '@/lib/catalogStorage';
 import { type Product } from '@/lib/mock/products';
 import { DEFAULT_ZONES, SHELF_ROWS, findZoneIn, type StoreZone } from '@/lib/mock/storeMap';
@@ -52,7 +57,11 @@ interface CatalogContextValue {
   productsInZone: (zoneId: string) => Product[];
   /** 상품 등록 — 백엔드에 생성(바코드 필요) + 로컬 표현(아이콘·구역·재고·할인) 저장. */
   /** 상품 등록. category를 주지 않으면 매대 구역에서 대표 카테고리를 유추한다. */
-  createProduct: (draft: ProductDraft, barcode: string, category?: ApiProductCategory) => Promise<Product>;
+  createProduct: (
+    draft: ProductDraft,
+    barcode: string,
+    category?: ApiProductCategory,
+  ) => Promise<Product>;
   /** 상품 수정 — 백엔드에 가격·판매상태 반영 + 로컬 표현 갱신(백엔드는 이름/카테고리 수정 불가). */
   editProduct: (productId: string, draft: ProductDraft) => Promise<void>;
   /**
@@ -70,6 +79,12 @@ interface CatalogContextValue {
   /** 백엔드 상품 목록 새로고침(당겨서 새로고침 등). */
   refresh: () => Promise<void>;
 }
+
+/**
+ * 앱 시작 시 미리 받아둘 상품 사진 수 — 홈의 할인 레일 + 그리드 첫 화면 분량.
+ * 나머지는 목록을 스크롤할 때 각 카드가 받아 디스크 캐시에 쌓인다.
+ */
+const PREFETCH_COUNT = 12;
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined);
 
@@ -110,7 +125,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const [zones, setZones] = useState<StoreZone[]>(DEFAULT_ZONES);
   const [isRestoring, setIsRestoring] = useState(true);
   const [hydrated, setHydrated] = useState(false);
-  const { isAuthenticated } = useAuth();
   /** 서버에서 상품을 받아온 적이 있는지 — 캐시 복원이 최신 결과를 덮어쓰는 것을 막는다. */
   const freshLoaded = useRef(false);
 
@@ -134,13 +148,24 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   // 백엔드 상품 새로고침. 미인증/오프라인이면 조용히 실패하고 캐시를 유지한다.
   const refresh = useCallback(async () => {
     try {
-      const list = await fetchProducts();
+      // 페이지가 여러 장이면 첫 장이 오는 즉시 화면에 반영하고, 나머지는 뒤이어 채운다.
+      const list = await fetchProducts({}, (partial) => {
+        freshLoaded.current = true;
+        setApiProducts(partial);
+      });
       freshLoaded.current = true;
       setApiProducts(list);
       // 목록을 받은 직후 상품 사진을 디스크 캐시에 미리 받아둔다.
       // 홈/카테고리로 들어갈 때 네트워크를 기다리지 않고 바로 뜨게 하려는 것이라
       // 실패는 무시한다(그때 가서 각 이미지가 알아서 다시 받는다).
-      const urls = list.map((p) => p.imageUrl).filter((url): url is string => Boolean(url));
+      //
+      // 첫 화면에 실제로 보이는 만큼만 받는다. 전량을 프리페치하면 로그인 화면이 떠 있는
+      // 동안 상품 수에 비례해 내려받게 되고(느린 망에서 첫 화면이 그만큼 늦어진다),
+      // 나머지는 목록을 스크롤할 때 expo-image가 알아서 받아 캐시에 넣는다.
+      const urls = list
+        .map((p) => p.imageUrl)
+        .filter((url): url is string => Boolean(url))
+        .slice(0, PREFETCH_COUNT);
       if (urls.length > 0) {
         ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => {});
       }
@@ -156,11 +181,14 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
    *     로그인 버튼을 누르는 시점엔 그 비용을 이미 치른 상태가 된다.
    *  2. 상품 목록이 이미 메모리에 있어서 로그인 직후 홈이 바로 그려진다.
    *  3. 상품 사진 프리페치도 그만큼 일찍 시작된다.
-   * 로그인 상태가 바뀔 때도 다시 받아 최신화한다.
+   *
+   * 로그인 여부와 상품 목록은 무관하므로 기동 시 한 번만 받는다. (예전에는 isAuthenticated가
+   * 바뀔 때마다 다시 받아, 세션이 복원되는 콜드 스타트마다 같은 목록을 두 번 받고 있었다.)
+   * 최신화가 필요한 지점 — 당겨서 새로고침, 관리자 상품 편집 — 은 각자 refresh()를 부른다.
    */
   useEffect(() => {
     refresh();
-  }, [refresh, isAuthenticated]);
+  }, [refresh]);
 
   // 백엔드 상품 + 로컬 오버레이 → 화면용 상품 목록.
   const products = useMemo(() => mergeCatalog(apiProducts, overlay), [apiProducts, overlay]);
@@ -168,7 +196,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   // 변경 시 영속화(복원 완료 이후에만). 짧게 디바운스한다(구역 이름 편집 등 잦은 변경 대비).
   useEffect(() => {
     if (!hydrated) return undefined;
-    const timer = setTimeout(() => saveCatalog({ overlay, zones, cachedProducts: apiProducts }), 400);
+    const timer = setTimeout(
+      () => saveCatalog({ overlay, zones, cachedProducts: apiProducts }),
+      400,
+    );
     return () => clearTimeout(timer);
   }, [hydrated, overlay, zones, apiProducts]);
 
@@ -186,7 +217,11 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
   // 상품 등록 — 백엔드에 생성 후 로컬 표현(아이콘·구역·재고·할인)을 오버레이로 저장한다.
   const createProduct = useCallback(
-    async (draft: ProductDraft, barcode: string, category?: ApiProductCategory): Promise<Product> => {
+    async (
+      draft: ProductDraft,
+      barcode: string,
+      category?: ApiProductCategory,
+    ): Promise<Product> => {
       const bc = barcode.trim();
       const created = await adminCreateProduct({
         barcode: bc,

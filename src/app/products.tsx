@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BrandRefreshLoader } from '@/components/BrandLoader';
@@ -85,12 +86,17 @@ export default function ProductsScreen() {
   const { cardWidth: cardW, columns } = useProductGrid(theme.gridColumns, theme.spacing, GUTTER);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={['top']}
+    >
       <TabTransition>
         <AppBar title="카테고리" onBack={() => router.replace('/home')} />
 
         {/* 검색 헤더 (고정) */}
-        <View style={[styles.header, { backgroundColor: colors.background, paddingHorizontal: GUTTER }]}>
+        <View
+          style={[styles.header, { backgroundColor: colors.background, paddingHorizontal: GUTTER }]}
+        >
           <SearchBar value={query} onChangeText={setQuery} placeholder="상품명 · 브랜드로 검색" />
 
           <ScrollView
@@ -110,7 +116,9 @@ export default function ProductsScreen() {
           </ScrollView>
 
           <View style={styles.toolRow}>
-            <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>
+            <Text
+              style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}
+            >
               {results.length}개
             </Text>
             <View style={{ flex: 1 }} />
@@ -136,7 +144,9 @@ export default function ProductsScreen() {
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => setSort(SORT_ORDER[(SORT_ORDER.indexOf(sort) + 1) % SORT_ORDER.length])}
+              onPress={() =>
+                setSort(SORT_ORDER[(SORT_ORDER.indexOf(sort) + 1) % SORT_ORDER.length])
+              }
               style={styles.toolButton}
               accessibilityLabel={`정렬 ${SORT_LABELS[sort]}, 눌러서 변경`}
             >
@@ -172,14 +182,19 @@ export default function ProductsScreen() {
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={5}
-          removeClippedSubviews
-          renderItem={({ item }) => (
-            <ProductCard
-              product={item}
-              price={salePrice(item)}
-              width={cardW}
-              onPress={() => router.push(`/product/${item.id}`)}
-            />
+          // removeClippedSubviews 는 안드로이드에서 빠르게 스크롤할 때 셀이 빈칸으로
+          // 남는 문제가 알려져 있어 쓰지 않는다. 가상화(windowSize)만으로 충분하다.
+          renderItem={({ item, index }) => (
+            // 첫 화면 카드는 살짝 시차를 두고 올라온다. 스크롤로 새로 들어오는 카드까지
+            // 계단식으로 밀리면 답답해지므로 지연은 앞쪽 몇 장으로 제한한다.
+            <Animated.View entering={FadeInDown.delay(Math.min(index, 5) * 45).duration(260)}>
+              <ProductCard
+                product={item}
+                price={salePrice(item)}
+                width={cardW}
+                onPress={() => router.push(`/product/${item.id}`)}
+              />
+            </Animated.View>
           )}
           ListEmptyComponent={
             isRestoring ? (

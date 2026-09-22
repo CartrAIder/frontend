@@ -56,19 +56,36 @@ export interface MemberSession {
   role: MemberRole;
 }
 
+/**
+ * 메모리 캐시 — `undefined`는 "아직 안 읽음", `null`은 "읽었고 로그인 안 됨".
+ *
+ * api.ts의 apiFetch가 요청마다 세션을 읽는데, secure-store 한 번이 안드로이드에선
+ * Keystore 복호화라 요청마다 지연이 붙는다. 세션을 바꾸는 통로가 아래 save/clear
+ * 둘뿐이라 메모리에 들고 있어도 값이 어긋나지 않는다.
+ */
+let cachedSession: MemberSession | null | undefined;
+
 export async function loadMemberSession(): Promise<MemberSession | null> {
+  if (cachedSession !== undefined) return cachedSession;
   try {
     const raw = await storage.getItem(MEMBER_STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) {
+      cachedSession = null;
+      return null;
+    }
     const parsed = JSON.parse(raw) as MemberSession;
     // role 도입 이전에 저장된 세션은 일반 회원으로 간주한다.
-    return { ...parsed, role: parsed.role === 'admin' ? 'admin' : 'user' };
+    cachedSession = { ...parsed, role: parsed.role === 'admin' ? 'admin' : 'user' };
+    return cachedSession;
   } catch {
+    cachedSession = null;
     return null;
   }
 }
 
 export async function saveMemberSession(session: MemberSession): Promise<void> {
+  // 저장이 실패해도 이번 실행 동안은 로그인 상태를 유지해야 하므로 캐시를 먼저 채운다.
+  cachedSession = session;
   try {
     await storage.setItem(MEMBER_STORAGE_KEY, JSON.stringify(session));
   } catch {
@@ -77,6 +94,7 @@ export async function saveMemberSession(session: MemberSession): Promise<void> {
 }
 
 export async function clearMemberSession(): Promise<void> {
+  cachedSession = null;
   try {
     await storage.removeItem(MEMBER_STORAGE_KEY);
   } catch {

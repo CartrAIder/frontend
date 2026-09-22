@@ -6,7 +6,16 @@
  * (테스트키 test_ck_* 는 도메인 제약이 없어 인라인 HTML + 임의 baseUrl로 초기화된다.)
  */
 import { useMemo } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
@@ -15,6 +24,79 @@ import { useTheme } from '@/context/ModeContext';
 /** 결제 성공/실패를 가로채기 위한 가짜 리다이렉트 URL(실제 이동 없이 인터셉트만 한다). */
 const SUCCESS_URL = 'https://cartraider.pay/success';
 const FAIL_URL = 'https://cartraider.pay/fail';
+
+/** WebView가 직접 열어도 되는 주소. 나머지는 전부 앱 스킴으로 보고 OS에 넘긴다. */
+function isWebUrl(url: string): boolean {
+  return /^https?:/i.test(url) || url === 'about:blank' || url.startsWith('data:');
+}
+
+/**
+ * 안드로이드 intent:// URL에서 필요한 조각을 뽑는다.
+ *
+ *   intent://pay?...#Intent;scheme=supertoss;package=viva.republica.toss;S.browser_fallback_url=https%3A%2F%2F...;end
+ *
+ * RN의 Linking은 intent:// 를 그대로 열지 못하므로 scheme으로 원래 앱 주소를 복원하고,
+ * 앱이 없을 때를 대비해 fallback URL과 패키지명(스토어 이동용)도 같이 읽어둔다.
+ */
+function parseIntentUrl(url: string): {
+  appUrl?: string;
+  fallbackUrl?: string;
+  packageName?: string;
+} {
+  const [body, fragment = ''] = url.slice('intent://'.length).split('#Intent;');
+  const read = (key: string) => new RegExp(`(?:^|;)${key}=([^;]*)`).exec(fragment)?.[1];
+
+  const scheme = read('scheme');
+  const rawFallback = read('S.browser_fallback_url');
+  return {
+    appUrl: scheme ? `${scheme}://${body}` : undefined,
+    fallbackUrl: rawFallback ? decodeURIComponent(rawFallback) : undefined,
+    packageName: read('package'),
+  };
+}
+
+/**
+ * 결제 앱(토스·카드사 앱 등)으로 넘긴다.
+ *
+ * 간편결제를 고르면 결제창이 `intent://`·`supertoss://` 같은 앱 스킴으로 이동을 시도하는데,
+ * WebView는 이런 스킴을 모르기 때문에 그냥 두면 ERR_UNKNOWN_URL_SCHEME 으로 화면이 깨진다.
+ * 앱이 깔려 있으면 실행하고, 없으면 설치 페이지로 안내한다.
+ */
+async function openPaymentApp(url: string): Promise<void> {
+  const intent = url.startsWith('intent://') ? parseIntentUrl(url) : null;
+  const candidates = [intent ? intent.appUrl : url, intent?.fallbackUrl].filter(
+    (candidate): candidate is string => Boolean(candidate),
+  );
+
+  for (const candidate of candidates) {
+    try {
+      await Linking.openURL(candidate);
+      return;
+    } catch {
+      // 다음 후보로 넘어간다(앱 미설치 등).
+    }
+  }
+
+  // 앱이 없을 때: 스토어로 보낸다. 패키지명을 모르면 안내만 한다.
+  if (intent?.packageName) {
+    for (const storeUrl of [
+      `market://details?id=${intent.packageName}`,
+      `https://play.google.com/store/apps/details?id=${intent.packageName}`,
+    ]) {
+      try {
+        await Linking.openURL(storeUrl);
+        return;
+      } catch {
+        // 스토어도 못 열면 아래 안내로 떨어진다.
+      }
+    }
+  }
+
+  Alert.alert(
+    '결제 앱을 열 수 없어요',
+    '선택한 간편결제 앱이 설치되어 있지 않습니다.\n설치 후 다시 시도하거나, 카드 직접 입력으로 결제해주세요.',
+  );
+}
 
 export interface TossSuccess {
   paymentKey: string;
@@ -38,7 +120,13 @@ interface Props {
   onCancel: () => void;
 }
 
-function buildHtml(clientKey: string, orderId: string, orderName: string, amount: number, customerName?: string): string {
+function buildHtml(
+  clientKey: string,
+  orderId: string,
+  orderName: string,
+  amount: number,
+  customerName?: string,
+): string {
   // JS 문자열에 안전하게 넣기 위해 JSON.stringify로 이스케이프한다.
   const j = (v: string | number) => JSON.stringify(v);
   return `<!DOCTYPE html>
@@ -119,6 +207,11 @@ export function TossPaymentModal({
       onFail({ code: q.code || 'UNKNOWN', message: q.message || '결제에 실패했습니다.' });
       return false;
     }
+    // 앱 스킴(intent://·supertoss://·ispmobile:// 등)은 WebView가 열 수 없다 → OS로 넘긴다.
+    if (!isWebUrl(url)) {
+      openPaymentApp(url);
+      return false;
+    }
     return true;
   }
 
@@ -135,10 +228,22 @@ export function TossPaymentModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onCancel} presentationStyle="fullScreen">
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-        <View style={[styles.header, { borderBottomColor: colors.border, minHeight: theme.minTouch }]}>
-          <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>결제</Text>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onCancel}
+      presentationStyle="fullScreen"
+    >
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        edges={['top', 'bottom']}
+      >
+        <View
+          style={[styles.header, { borderBottomColor: colors.border, minHeight: theme.minTouch }]}
+        >
+          <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}>
+            결제
+          </Text>
           <Pressable onPress={onCancel} hitSlop={16} style={styles.close}>
             <Text style={{ fontSize: theme.fontBody, color: colors.textMuted }}>닫기</Text>
           </Pressable>
@@ -178,6 +283,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
-  close: { position: 'absolute', right: 4, top: 0, bottom: 0, justifyContent: 'center', paddingHorizontal: 16 },
-  loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  close: {
+    position: 'absolute',
+    right: 4,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  loading: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
 });

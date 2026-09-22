@@ -121,7 +121,7 @@ src/
     sse.ts             # SSE(react-native-sse) 연결
     authStorage.ts     # 회원 세션 저장 (secure-store, role 포함)
     cartStorage.ts     # 카트 세션·장바구니 저장 (secure-store)
-    catalogStorage.ts  # 카탈로그 저장 (secure-store, 2KB 제한 회피용 청크 분할)
+    catalogStorage.ts  # 카탈로그 저장 (async-storage 단일 키 — 민감정보 아님. 토큰만 secure-store)
     catalog/overlay.ts # 서버 상품 + 로컬 표현 오버레이 병합
     format.ts          # 표시용 포맷 (날짜·금액)
     confirm.ts         # 크로스플랫폼 확인 다이얼로그 (웹은 window.confirm)

@@ -1,5 +1,14 @@
 import { memo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 
 import { Icon } from '@/components/Icon';
 import { ProductImage } from '@/components/ProductImage';
@@ -29,13 +38,18 @@ export function Price({
 }) {
   const theme = useTheme();
   const { colors } = theme;
-  const base = size === 'lg' ? theme.fontAmount : size === 'sm' ? theme.fontBody - 1 : theme.fontBody + 1;
+  const base =
+    size === 'lg' ? theme.fontAmount : size === 'sm' ? theme.fontBody - 1 : theme.fontBody + 1;
 
   return (
     <View style={{ gap: 1 }}>
       {discountPercent ? (
         <Text
-          style={{ fontSize: base - 5, color: colors.textMuted, textDecorationLine: 'line-through' }}
+          style={{
+            fontSize: base - 5,
+            color: colors.textMuted,
+            textDecorationLine: 'line-through',
+          }}
           numberOfLines={1}
         >
           {formatWon(original ?? price)}
@@ -43,9 +57,13 @@ export function Price({
       ) : null}
       <View style={styles.priceRow}>
         {discountPercent ? (
-          <Text style={{ fontSize: base, color: colors.discount, fontWeight: '800' }}>{discountPercent}%</Text>
+          <Text style={{ fontSize: base, color: colors.discount, fontWeight: '800' }}>
+            {discountPercent}%
+          </Text>
         ) : null}
-        <Text style={{ fontSize: base, color: colors.text, fontWeight: '800' }}>{formatWon(price)}</Text>
+        <Text style={{ fontSize: base, color: colors.text, fontWeight: '800' }}>
+          {formatWon(price)}
+        </Text>
       </View>
     </View>
   );
@@ -94,14 +112,25 @@ export function SectionHeader({
   return (
     <View style={styles.sectionHeader}>
       <View style={{ flex: 1, gap: 2 }}>
-        <Text style={{ fontSize: theme.fontButton - 1, color: colors.text, fontWeight: '800' }}>{title}</Text>
+        <Text style={{ fontSize: theme.fontButton - 1, color: colors.text, fontWeight: '800' }}>
+          {title}
+        </Text>
         {subtitle ? (
           <Text style={{ fontSize: theme.fontBody - 3, color: colors.textMuted }}>{subtitle}</Text>
         ) : null}
       </View>
       {onMore ? (
-        <Pressable onPress={onMore} hitSlop={8} style={styles.moreButton} accessibilityLabel={`${title} 더보기`}>
-          <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}>더보기</Text>
+        <Pressable
+          onPress={onMore}
+          hitSlop={8}
+          style={styles.moreButton}
+          accessibilityLabel={`${title} 더보기`}
+        >
+          <Text
+            style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, fontWeight: '600' }}
+          >
+            더보기
+          </Text>
           <Icon name="chevronRight" size={14} color={colors.textMuted} strokeWidth={2.5} />
         </Pressable>
       ) : null}
@@ -140,7 +169,10 @@ export function SearchBar({
     >
       <Icon name="search" size={theme.fontBody + 4} color={colors.textMuted} />
       {readOnly ? (
-        <Text style={{ flex: 1, fontSize: theme.fontBody, color: colors.textMuted }} numberOfLines={1}>
+        <Text
+          style={{ flex: 1, fontSize: theme.fontBody, color: colors.textMuted }}
+          numberOfLines={1}
+        >
           {placeholder}
         </Text>
       ) : (
@@ -156,7 +188,11 @@ export function SearchBar({
             style={{ flex: 1, fontSize: theme.fontBody, color: colors.text, paddingVertical: 10 }}
           />
           {value ? (
-            <Pressable onPress={() => onChangeText?.('')} hitSlop={10} accessibilityLabel="검색어 지우기">
+            <Pressable
+              onPress={() => onChangeText?.('')}
+              hitSlop={10}
+              accessibilityLabel="검색어 지우기"
+            >
               <Icon name="close" size={theme.fontBody + 2} color={colors.textMuted} />
             </Pressable>
           ) : null}
@@ -176,13 +212,22 @@ export function SearchBar({
 
 // ── 칩 ──────────────────────────────────────────────────────────────────
 
-export function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+export function Chip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
   const theme = useTheme();
   const { colors } = theme;
 
   return (
     <Pressable
       onPress={onPress}
+      android_ripple={{ color: colors.ripple }}
       style={[
         styles.chip,
         {
@@ -241,7 +286,8 @@ function ProductCardBase({
   return (
     <Pressable
       onPress={onPress}
-      style={[{ width }, style]}
+      style={[{ width, borderRadius: theme.imageRadius, overflow: 'hidden' }, style]}
+      android_ripple={{ color: colors.ripple }}
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${formatWon(price)}${soldOut ? ', 품절' : ''}`}
     >
@@ -258,7 +304,9 @@ function ProductCardBase({
           />
           {soldOut ? (
             <View style={[styles.soldOutOverlay, { borderRadius: theme.imageRadius }]}>
-              <Text style={{ fontSize: theme.fontBody - 1, color: '#FFFFFF', fontWeight: '800' }}>품절</Text>
+              <Text style={{ fontSize: theme.fontBody - 1, color: '#FFFFFF', fontWeight: '800' }}>
+                품절
+              </Text>
             </View>
           ) : null}
           {!soldOut && product.discountPercent ? (
@@ -270,11 +318,21 @@ function ProductCardBase({
 
         <View style={{ gap: 3 }}>
           {product.brand ? (
-            <Text style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }} numberOfLines={1}>
+            <Text
+              style={{ fontSize: theme.fontBody - 4, color: colors.textMuted }}
+              numberOfLines={1}
+            >
               {product.brand}
             </Text>
           ) : null}
-          <Text style={{ fontSize: theme.fontBody - 1, color: colors.text, lineHeight: theme.fontBody + 6 }} numberOfLines={2}>
+          <Text
+            style={{
+              fontSize: theme.fontBody - 1,
+              color: colors.text,
+              lineHeight: theme.fontBody + 6,
+            }}
+            numberOfLines={2}
+          >
             {product.name}
           </Text>
           <Price
@@ -328,11 +386,21 @@ export function ProductRow({
             {product.brand}
           </Text>
         ) : null}
-        <Text style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }} numberOfLines={2}>
+        <Text
+          style={{ fontSize: theme.fontBody, color: colors.text, fontWeight: '600' }}
+          numberOfLines={2}
+        >
           {product.name}
         </Text>
-        {soldOut ? <Badge label="품절" tone="soldout" /> : (
-          <Price price={price} original={product.unitPrice} discountPercent={product.discountPercent} size="sm" />
+        {soldOut ? (
+          <Badge label="품절" tone="soldout" />
+        ) : (
+          <Price
+            price={price}
+            original={product.unitPrice}
+            discountPercent={product.discountPercent}
+            size="sm"
+          />
         )}
       </View>
       {right}
@@ -340,7 +408,12 @@ export function ProductRow({
   );
 
   return onPress ? (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${product.name} 상세 보기`}>
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors.ripple }}
+      accessibilityRole="button"
+      accessibilityLabel={`${product.name} 상세 보기`}
+    >
       {body}
     </Pressable>
   ) : (
@@ -368,19 +441,30 @@ export function QuantityStepper({
       <Pressable
         onPress={() => onChange(quantity - 1)}
         disabled={disabled || quantity <= 1}
-        style={[styles.stepperButton, { width: btn, height: btn, opacity: quantity <= 1 ? 0.35 : 1 }]}
+        android_ripple={{ color: colors.ripple, borderless: true, radius: btn / 2 }}
+        style={[
+          styles.stepperButton,
+          { width: btn, height: btn, opacity: quantity <= 1 ? 0.35 : 1 },
+        ]}
         accessibilityLabel="수량 1 줄이기"
       >
         <Icon name="minus" size={16} color={colors.text} strokeWidth={2.5} />
       </Pressable>
       <Text
-        style={{ minWidth: 28, textAlign: 'center', fontSize: theme.fontBody, color: colors.text, fontWeight: '700' }}
+        style={{
+          minWidth: 28,
+          textAlign: 'center',
+          fontSize: theme.fontBody,
+          color: colors.text,
+          fontWeight: '700',
+        }}
       >
         {quantity}
       </Text>
       <Pressable
         onPress={() => onChange(quantity + 1)}
         disabled={disabled}
+        android_ripple={{ color: colors.ripple, borderless: true, radius: btn / 2 }}
         style={[styles.stepperButton, { width: btn, height: btn }]}
         accessibilityLabel="수량 1 늘리기"
       >
@@ -409,9 +493,18 @@ export function EmptyState({
       <View style={[styles.emptyIcon, { backgroundColor: colors.surface }]}>
         <Icon name="box" size={30} color={colors.textMuted} />
       </View>
-      <Text style={{ fontSize: theme.fontBody + 1, color: colors.text, fontWeight: '700' }}>{title}</Text>
+      <Text style={{ fontSize: theme.fontBody + 1, color: colors.text, fontWeight: '700' }}>
+        {title}
+      </Text>
       {description ? (
-        <Text style={{ fontSize: theme.fontBody - 2, color: colors.textMuted, textAlign: 'center', lineHeight: 20 }}>
+        <Text
+          style={{
+            fontSize: theme.fontBody - 2,
+            color: colors.textMuted,
+            textAlign: 'center',
+            lineHeight: 20,
+          }}
+        >
           {description}
         </Text>
       ) : null}
@@ -441,9 +534,16 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   moreButton: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 },
-  chip: { paddingHorizontal: 14, justifyContent: 'center', borderWidth: 1, borderRadius: 999 },
+  // overflow: hidden — 안드로이드 물결이 둥근 모서리 밖으로 새지 않게 한다.
+  chip: {
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
   soldOutOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(17,24,39,0.35)',
@@ -453,5 +553,11 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
   stepperButton: { alignItems: 'center', justifyContent: 'center' },
   empty: { paddingVertical: 56, alignItems: 'center', gap: 10 },
-  emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
