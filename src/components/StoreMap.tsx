@@ -5,14 +5,24 @@
  * 계산대 레인, 카트 보관소, 입구 매트와 문 스윙까지 그린다. 한글 라벨은 SVG 위에 RN
  * Text로 겹쳐 올린다 (RN SVG의 Text는 폰트 렌더가 기기마다 다르다).
  *
- * 움직이는 것들(경로 그리기, 카트 주행, 현위치 펄스, 목적지 핀 드롭)은 전부 reanimated로
- * UI 스레드에서 돈다. 지도를 띄운 화면이 목록·SSE로 바쁜 와중에도 끊기지 않게 하려는 것이다.
+ * 움직이는 것들(경로 그리기, 카트 주행, 현위치 펄스, 목적지 핀 드롭)은 reanimated로 돈다.
+ *
+ * ⚠️ 애니메이션 prop은 **숫자**만 쓴다(`cx`·`cy`·`r`·`opacity`·`strokeDashoffset`).
+ *  react-native-svg의 `transform`은 문자열이든 배열이든 `extractTransform`이 JS에서 풀어내므로,
+ *  `useAnimatedProps`로 매 프레임 바꾸면 UI 스레드에서 못 끝나고 JS로 내려온다. 실제로 카트를
+ *  `<G transform={`translate(x,y)`}>`로 움직였더니 경로가 있는 화면(상품 상세·구역 선택한 지도)이
+ *  눈에 띄게 버벅였다. 그래서 카트는 그룹 이동이 아니라 원의 `cx`·`cy`를 직접 움직인다.
+ *
+ * 화면이 포커스를 잃으면(다른 화면을 push) 반복 애니메이션을 전부 멈춘다 — expo-router는 뒤
+ * 화면을 살려두기 때문에, 안 그러면 안 보이는 지도가 계속 프레임을 먹는다.
  *
  * 좌표계는 viewBox 100 × 120(세로형) 고정이며, 아래 상수를 화면들이 공유한다.
  */
+import { useIsFocused } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
+  cancelAnimation,
   Easing,
   ReduceMotion,
   useAnimatedProps,
@@ -46,6 +56,9 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedG = Animated.createAnimatedComponent(G);
 
+/** 경로가 없을 때 쓰는 고정 빈 배열 — 렌더마다 새 `[]`를 만들면 useDerivedValue가 매번 다시 엮인다. */
+const NO_POINTS: number[] = [];
+
 // ── 매장 평면도 좌표계 ─────────────────────────────────────────────────
 export const VB_W = 100;
 export const VB_H = 120;
@@ -56,6 +69,35 @@ export const ROW_Y: Record<number, number> = { 0: 12, 1: 52 }; // 선반 상단 
 export const MAIN_AISLE_Y = 90; // 선반 앞 메인 통로
 export const MID_AISLE_Y = 47; // 위/아래 선반 사이 통로
 export const ENTRANCE = { x: 50, y: 93 }; // 현위치(입구 앞) — 펄스 링이 계산대에 닿지 않는 높이
+
+/**
+ * 경로 위 한 점의 좌표 — `axis` 0이면 x, 1이면 y.
+ *
+ * 모듈 스코프 worklet이라 화면 클로저를 안 물고 UI 스레드에서 그대로 돈다.
+ * x·y를 따로 구하는 건 한 번에 `{x, y}`를 돌려주면 프레임마다 객체가 할당되기 때문이다.
+ */
+function pointOnRoute(
+  flat: number[],
+  lengths: number[],
+  total: number,
+  progress: number,
+  axis: 0 | 1,
+): number {
+  'worklet';
+  const fallback = axis === 0 ? ENTRANCE.x : ENTRANCE.y;
+  if (lengths.length === 0) return fallback;
+  let remain = progress * total;
+  for (let i = 0; i < lengths.length; i += 1) {
+    if (remain <= lengths[i] || i === lengths.length - 1) {
+      const t = lengths[i] === 0 ? 0 : Math.min(1, remain / lengths[i]);
+      const a = flat[i * 2 + axis];
+      const b = flat[(i + 1) * 2 + axis];
+      return a + (b - a) * t;
+    }
+    remain -= lengths[i];
+  }
+  return fallback;
+}
 
 export interface Shelf {
   id: string;
@@ -171,16 +213,18 @@ export function StoreMap({
 }) {
   const theme = useTheme();
   const { colors } = theme;
-  const shelves = shelvesFromZones(zones);
+  const shelves = useMemo(() => shelvesFromZones(zones), [zones]);
   const destShelf = destinationZoneId ? shelves.find((s) => s.id === destinationZoneId) : undefined;
   const measured = useMemo(() => measureRoute(route), [route]);
   /** 목적지·선택이 있으면 나머지 매대를 살짝 죽여 대비를 준다. */
   const hasFocus = Boolean(destShelf || selectedZoneId);
+  /** 화면이 뒤로 밀리면(다른 화면 push) 반복 애니메이션을 멈춘다. */
+  const isFocused = useIsFocused();
 
   // ── 경로 그리기 + 카트 주행 ──────────────────────────────────────
   const progress = useSharedValue(0);
   useEffect(() => {
-    if (!measured) return;
+    if (!measured || !isFocused) return;
     progress.value = 0;
     progress.value = withRepeat(
       withSequence(
@@ -195,41 +239,36 @@ export function StoreMap({
       -1,
       false,
     );
-  }, [measured, progress]);
+    return () => cancelAnimation(progress);
+  }, [measured, isFocused, progress]);
 
   const total = measured?.total ?? 0;
   const routeProps = useAnimatedProps(() => ({
     strokeDashoffset: total * (1 - progress.value),
   }));
 
-  const flat = measured?.flat ?? [];
-  const lengths = measured?.lengths ?? [];
-  /** 진행률(0~1)을 경로 위 좌표로 변환한다. */
-  const cartPoint = useDerivedValue(() => {
-    if (lengths.length === 0) return { x: ENTRANCE.x, y: ENTRANCE.y };
-    let remain = progress.value * total;
-    for (let i = 0; i < lengths.length; i += 1) {
-      if (remain <= lengths[i] || i === lengths.length - 1) {
-        const t = lengths[i] === 0 ? 0 : Math.min(1, remain / lengths[i]);
-        const x1 = flat[i * 2];
-        const y1 = flat[i * 2 + 1];
-        const x2 = flat[(i + 1) * 2];
-        const y2 = flat[(i + 1) * 2 + 1];
-        return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
-      }
-      remain -= lengths[i];
-    }
-    return { x: ENTRANCE.x, y: ENTRANCE.y };
-  }, [flat, lengths, total]);
+  const flat = measured?.flat ?? NO_POINTS;
+  const lengths = measured?.lengths ?? NO_POINTS;
+  // 진행률(0~1) → 경로 위 좌표. x·y를 각각 숫자 shared value로 둔다.
+  // 객체 하나로 묶으면 매 프레임 UI 스레드에서 객체를 새로 할당하게 된다.
+  const cartX = useDerivedValue(
+    () => pointOnRoute(flat, lengths, total, progress.value, 0),
+    [flat, lengths, total],
+  );
+  const cartY = useDerivedValue(
+    () => pointOnRoute(flat, lengths, total, progress.value, 1),
+    [flat, lengths, total],
+  );
 
-  const cartProps = useAnimatedProps(() => ({
-    transform: `translate(${cartPoint.value.x}, ${cartPoint.value.y})`,
-  }));
+  /** 원의 cx·cy는 네이티브 숫자 prop이라 UI 스레드에서 그대로 반영된다. */
+  const cartPos = useAnimatedProps(() => ({ cx: cartX.value, cy: cartY.value }));
 
   // ── 현위치 펄스 ────────────────────────────────────────────────
   const pulse = useSharedValue(0);
   useEffect(() => {
-    if (!showCurrentPin) return;
+    if (!showCurrentPin || !isFocused) return;
+    // 포커스를 잃을 때 cancelAnimation이 중간값을 남기므로, 돌아오면 처음부터 다시 퍼지게 한다.
+    pulse.value = 0;
     pulse.value = withRepeat(
       withTiming(1, {
         duration: 1800,
@@ -239,7 +278,8 @@ export function StoreMap({
       -1,
       false,
     );
-  }, [showCurrentPin, pulse]);
+    return () => cancelAnimation(pulse);
+  }, [showCurrentPin, isFocused, pulse]);
 
   const pulseProps = useAnimatedProps(() => ({
     // 최대 반경을 7로 묶어 아래 계산대(y=101)와 겹치지 않게 한다.
@@ -582,13 +622,13 @@ export function StoreMap({
             </>
           ) : null}
 
-          {/* 경로를 따라 달리는 카트 */}
+          {/* 경로를 따라 달리는 카트 — 그룹을 옮기지 않고 원의 cx·cy를 직접 움직인다(위 주석 참고) */}
           {measured ? (
-            <AnimatedG animatedProps={cartProps}>
-              <Circle r={3.6} fill="#FFFFFF" opacity={0.9} />
-              <Circle r={2.6} fill={colors.primary} />
-              <Path d="M-1.1 -0.7 h2.4 l-0.4 1.3 h-1.6 z" fill="#FFFFFF" />
-            </AnimatedG>
+            <>
+              <AnimatedCircle r={3.6} fill="#FFFFFF" opacity={0.9} animatedProps={cartPos} />
+              <AnimatedCircle r={2.6} fill={colors.primary} animatedProps={cartPos} />
+              <AnimatedCircle r={0.9} fill="#FFFFFF" animatedProps={cartPos} />
+            </>
           ) : null}
 
           {/* 목적지 핀 — 위에서 떨어져 꽂힌다 */}

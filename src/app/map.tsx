@@ -48,11 +48,19 @@ export default function MapScreen() {
   }, [cart.items, findProduct]);
   const pickedZones = Object.keys(zoneCounts).length;
 
-  /** 구역을 고르면 입구에서 그 매대까지 가는 길을 그린다(계산대 구역은 제외). */
-  const route =
-    selectedZone && selectedZone.row < SHELF_ROWS
-      ? buildRoute(selectedZone.row, selectedZone.col)
-      : null;
+  /**
+   * 구역을 고르면 입구에서 그 매대까지 가는 길을 그린다(계산대 구역은 제외).
+   * 렌더마다 새 배열을 만들면 StoreMap이 경로를 다시 측정하고 카트 주행을 재시작한다.
+   */
+  const route = useMemo(
+    () =>
+      selectedZone && selectedZone.row < SHELF_ROWS
+        ? buildRoute(selectedZone.row, selectedZone.col)
+        : null,
+    // 경로는 매대 칸(row·col)에만 달려 있다 — 상품 상세와 같은 이유로 좁게 잡는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedZone?.row, selectedZone?.col],
+  );
   const distance =
     selectedZone && selectedZone.row < SHELF_ROWS
       ? estimateDistanceMeters(selectedZone.row, selectedZone.col)

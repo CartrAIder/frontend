@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,6 +36,16 @@ export default function ProductDetailScreen() {
   const heroSize = useHeroSize();
 
   const product = id ? findProduct(id) : undefined;
+  const zone = product ? findZone(product.zone) : undefined;
+  // 길 안내 경로. 렌더마다 새 배열을 만들면 StoreMap이 경로를 다시 측정하고
+  // 카트 주행 애니메이션을 처음부터 재시작한다 — 좌표가 같으면 같은 배열을 유지한다.
+  const route = useMemo(
+    () => (zone && zone.row < 2 ? buildRoute(zone.row, zone.col) : null),
+    // 경로는 매대 칸(row·col)에만 달려 있다. zone 객체 전체를 넣으면 이름·색만 바뀌어도
+    // 새 배열이 나와 애니메이션이 다시 시작된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [zone?.row, zone?.col],
+  );
 
   // 앱을 켜자마자 이 화면으로 들어오면(딥링크·복귀) 카탈로그가 아직 복원 중이라
   // findProduct가 빈손으로 돌아온다. 그때 "없는 상품"이라고 말하면 거짓말이 된다.
@@ -78,10 +89,8 @@ export default function ProductDetailScreen() {
     );
   }
 
-  const zone = findZone(product.zone);
   const price = salePrice(product);
   const soldOut = product.stock === 0;
-  const route = zone && zone.row < 2 ? buildRoute(zone.row, zone.col) : null;
   const distance = zone ? estimateDistanceMeters(zone.row, zone.col) : 0;
   const related = zone
     ? productsInZone(zone.id)
