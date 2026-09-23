@@ -26,7 +26,7 @@
         "android.permission.READ_MEDIA_AUDIO"
       ],
       "package": "com.cartraider.app",
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "output": "static",

@@ -52,5 +52,11 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "photos": "node scripts/sync-product-photos.mjs"
   },
-  "private": true
+  "private": true,
+  "reanimated": {
+    "staticFeatureFlags": {
+      "ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS": true,
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  }
 }
