@@ -26,7 +26,7 @@
         "android.permission.READ_MEDIA_AUDIO"
       ],
       "package": "com.cartraider.app",
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "output": "static",
@@ -74,6 +74,12 @@
         "projectId": "16f3edef-28a0-47f7-a116-516c194025c0"
       }
     },
-    "owner": "dozeroo"
+    "owner": "dozeroo",
+    "updates": {
+      "url": "https://u.expo.dev/16f3edef-28a0-47f7-a116-516c194025c0"
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    }
   }
 }
