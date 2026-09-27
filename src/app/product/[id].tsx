@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,7 +10,7 @@ import { Icon } from '@/components/Icon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProductImage } from '@/components/ProductImage';
 import { ProductDetailSkeleton } from '@/components/Skeleton';
-import { StoreMap, buildRoute, estimateDistanceMeters } from '@/components/StoreMap';
+import { StoreMap, VB_H, VB_W, buildRoute, estimateDistanceMeters } from '@/components/StoreMap';
 import { Badge, EmptyState, Price, ProductCard, SectionHeader } from '@/components/commerce';
 import { useCartSession } from '@/context/CartSessionContext';
 import { salePrice, useCatalog } from '@/context/CatalogContext';
@@ -18,6 +18,33 @@ import { useTheme } from '@/context/ModeContext';
 import { useHeroSize, useProductGrid } from '@/lib/layout';
 
 const GUTTER = 20;
+
+/** transitionEnd가 안 오는 진입(애니메이션 없는 replace·딥링크)에서도 지도가 뜨도록 거는 상한. */
+const MAP_MOUNT_FALLBACK_MS = 600;
+
+/**
+ * 화면 진입 슬라이드가 끝난 뒤에 true가 된다.
+ *
+ * 매장 지도는 매대·패턴·그라디언트로 이루어진 큰 SVG라 첫 마운트가 무겁다. 슬라이드 도중에
+ * 같이 그리면 전환 애니메이션이 끊기므로, 전환이 끝난 다음 프레임에 붙인다.
+ */
+function useTransitionDone(): boolean {
+  const navigation = useNavigation();
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (done) return undefined;
+    const timer = setTimeout(() => setDone(true), MAP_MOUNT_FALLBACK_MS);
+    // expo-router의 useNavigation 타입엔 native-stack 전용 이벤트가 빠져 있어 좁혀서 쓴다.
+    const unsubscribe = (
+      navigation as unknown as { addListener: (e: 'transitionEnd', cb: () => void) => () => void }
+    ).addListener('transitionEnd', () => setDone(true));
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [navigation, done]);
+  return done;
+}
 
 /**
  * 상품 상세 — 큰 이미지 → 가격 → 정보 → 매장 위치 → 연관 상품, 하단 고정 CTA.
@@ -34,6 +61,7 @@ export default function ProductDetailScreen() {
   // 훅은 early return 앞에서 전부 호출해야 한다(상품을 못 찾는 분기가 아래에 있다).
   const { railCardWidth: railCardW } = useProductGrid(theme.gridColumns, theme.spacing, GUTTER);
   const heroSize = useHeroSize();
+  const mapReady = useTransitionDone();
 
   const product = id ? findProduct(id) : undefined;
   const zone = product ? findZone(product.zone) : undefined;
@@ -210,7 +238,19 @@ export default function ProductDetailScreen() {
                 title="매장 위치"
                 subtitle={`${zone.label} · 입구에서 약 ${distance}m`}
               />
-              <StoreMap zones={zones} route={route} destinationZoneId={zone.id} />
+              {mapReady ? (
+                <StoreMap zones={zones} route={route} destinationZoneId={zone.id} />
+              ) : (
+                // 지도와 같은 비율의 자리만 먼저 잡아 둔다(붙을 때 아래 내용이 밀리지 않게).
+                <View
+                  style={{
+                    width: '100%',
+                    aspectRatio: VB_W / VB_H,
+                    borderRadius: theme.radius,
+                    backgroundColor: colors.surface,
+                  }}
+                />
+              )}
             </View>
           </>
         ) : null}

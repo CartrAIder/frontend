@@ -5,13 +5,18 @@
  * 계산대 레인, 카트 보관소, 입구 매트와 문 스윙까지 그린다. 한글 라벨은 SVG 위에 RN
  * Text로 겹쳐 올린다 (RN SVG의 Text는 폰트 렌더가 기기마다 다르다).
  *
- * 움직이는 것들(경로 그리기, 카트 주행, 현위치 펄스, 목적지 핀 드롭)은 reanimated로 돈다.
+ * 움직이는 것들(카트 주행, 현위치 펄스, 목적지 핀 드롭)은 reanimated로 돈다.
  *
- * ⚠️ 애니메이션 prop은 **숫자**만 쓴다(`cx`·`cy`·`r`·`opacity`·`strokeDashoffset`).
- *  react-native-svg의 `transform`은 문자열이든 배열이든 `extractTransform`이 JS에서 풀어내므로,
- *  `useAnimatedProps`로 매 프레임 바꾸면 UI 스레드에서 못 끝나고 JS로 내려온다. 실제로 카트를
- *  `<G transform={`translate(x,y)`}>`로 움직였더니 경로가 있는 화면(상품 상세·구역 선택한 지도)이
- *  눈에 띄게 버벅였다. 그래서 카트는 그룹 이동이 아니라 원의 `cx`·`cy`를 직접 움직인다.
+ * ⚠️ 애니메이션은 **SVG 밖의 RN View에 transform·opacity로만** 건다. SVG prop은 건드리지 않는다.
+ *  - New Architecture(Fabric)에서 SVG prop(`cx`·`r`·`strokeDashoffset`·`transform` 등)을
+ *    `useAnimatedProps`로 바꾸면 매 프레임 Shadow Tree 커밋이 일어나고, react-native-svg는
+ *    그때마다 캔버스 전체(바닥 패턴·그라디언트·매대 수십 개)를 다시 그린다. 숫자 prop이라도 마찬가지라,
+ *    예전에 `transform` 문자열 → `cx`·`cy`로 바꾼 뒤에도 상품 상세·지도가 계속 버벅였다.
+ *  - View의 transform·opacity는 reanimated의 동기 UI prop 경로(package.json의
+ *    `*_SYNCHRONOUSLY_UPDATE_UI_PROPS`)로 커밋 없이 네이티브 뷰에 바로 반영된다. SVG는 한 번 그린 뒤
+ *    다시 그려지지 않는다.
+ *  그래서 평면도·경로는 정적 SVG로 그리고, 움직이는 것은 그 위에 겹친 View 오버레이로 둔다.
+ *  viewBox 좌표 → 픽셀 변환에 필요한 지도 폭은 onLayout으로 한 번 잰다.
  *
  * 화면이 포커스를 잃으면(다른 화면을 push) 반복 애니메이션을 전부 멈춘다 — expo-router는 뒤
  * 화면을 살려두기 때문에, 안 그러면 안 보이는 지도가 계속 프레임을 먹는다.
@@ -19,14 +24,13 @@
  * 좌표계는 viewBox 100 × 120(세로형) 고정이며, 아래 상수를 화면들이 공유한다.
  */
 import { useIsFocused } from 'expo-router';
-import { useEffect, useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
   ReduceMotion,
-  useAnimatedProps,
-  useDerivedValue,
+  useAnimatedStyle,
   useSharedValue,
   withDelay,
   withRepeat,
@@ -52,12 +56,18 @@ import { SHELF_ROWS, zoneIconName, type StoreZone } from '@/lib/mock/storeMap';
 
 import { Icon } from './Icon';
 
-const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedG = Animated.createAnimatedComponent(G);
-
-/** 경로가 없을 때 쓰는 고정 빈 배열 — 렌더마다 새 `[]`를 만들면 useDerivedValue가 매번 다시 엮인다. */
+/** 경로가 없을 때 쓰는 고정 빈 배열 — 렌더마다 새 `[]`를 만들면 애니메이션 워크릿이 매번 다시 엮인다. */
 const NO_POINTS: number[] = [];
+
+// 오버레이 크기(viewBox 단위) — 예전 SVG 원 반지름과 같다.
+const CART_R = 3.6;
+const CART_INNER_R = 2.6;
+const CART_DOT_R = 0.9;
+const PULSE_MIN_R = 3.2;
+/** 펄스 최대 반경 — 7로 묶어 아래 계산대(y=101)와 겹치지 않게 한다. */
+const PULSE_MAX_R = 7;
+/** 핀이 떨어지기 시작하는 높이. */
+const PIN_DROP = 14;
 
 // ── 매장 평면도 좌표계 ─────────────────────────────────────────────────
 export const VB_W = 100;
@@ -221,7 +231,16 @@ export function StoreMap({
   /** 화면이 뒤로 밀리면(다른 화면 push) 반복 애니메이션을 멈춘다. */
   const isFocused = useIsFocused();
 
-  // ── 경로 그리기 + 카트 주행 ──────────────────────────────────────
+  /** viewBox 1단위가 몇 px인지 — 지도 폭을 재기 전(0)에는 오버레이를 그리지 않는다. */
+  const [mapWidth, setMapWidth] = useState(0);
+  const unit = mapWidth / VB_W;
+  const onMapLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    // 소수점 떨림으로 인한 재렌더를 막는다.
+    if (Math.abs(w - mapWidth) > 0.5) setMapWidth(w);
+  };
+
+  // ── 카트 주행 ────────────────────────────────────────────────────
   const progress = useSharedValue(0);
   useEffect(() => {
     if (!measured || !isFocused) return;
@@ -243,25 +262,16 @@ export function StoreMap({
   }, [measured, isFocused, progress]);
 
   const total = measured?.total ?? 0;
-  const routeProps = useAnimatedProps(() => ({
-    strokeDashoffset: total * (1 - progress.value),
-  }));
-
   const flat = measured?.flat ?? NO_POINTS;
   const lengths = measured?.lengths ?? NO_POINTS;
-  // 진행률(0~1) → 경로 위 좌표. x·y를 각각 숫자 shared value로 둔다.
-  // 객체 하나로 묶으면 매 프레임 UI 스레드에서 객체를 새로 할당하게 된다.
-  const cartX = useDerivedValue(
-    () => pointOnRoute(flat, lengths, total, progress.value, 0),
-    [flat, lengths, total],
-  );
-  const cartY = useDerivedValue(
-    () => pointOnRoute(flat, lengths, total, progress.value, 1),
-    [flat, lengths, total],
-  );
-
-  /** 원의 cx·cy는 네이티브 숫자 prop이라 UI 스레드에서 그대로 반영된다. */
-  const cartPos = useAnimatedProps(() => ({ cx: cartX.value, cy: cartY.value }));
+  // 진행률(0~1) → 경로 위 좌표 → 픽셀 translate. 오버레이는 (0,0)에 놓고 transform으로만 옮긴다.
+  const cartStyle = useAnimatedStyle(() => {
+    const x = pointOnRoute(flat, lengths, total, progress.value, 0);
+    const y = pointOnRoute(flat, lengths, total, progress.value, 1);
+    return {
+      transform: [{ translateX: (x - CART_R) * unit }, { translateY: (y - CART_R) * unit }],
+    };
+  });
 
   // ── 현위치 펄스 ────────────────────────────────────────────────
   const pulse = useSharedValue(0);
@@ -281,10 +291,10 @@ export function StoreMap({
     return () => cancelAnimation(pulse);
   }, [showCurrentPin, isFocused, pulse]);
 
-  const pulseProps = useAnimatedProps(() => ({
-    // 최대 반경을 7로 묶어 아래 계산대(y=101)와 겹치지 않게 한다.
-    r: 3.2 + pulse.value * 3.8,
+  // 최대 크기의 원을 scale로 줄였다 키운다(반지름 3.2 → 7).
+  const pulseStyle = useAnimatedStyle(() => ({
     opacity: 0.28 * (1 - pulse.value),
+    transform: [{ scale: (PULSE_MIN_R + pulse.value * (PULSE_MAX_R - PULSE_MIN_R)) / PULSE_MAX_R }],
   }));
 
   // ── 목적지 핀 드롭 ─────────────────────────────────────────────
@@ -298,14 +308,17 @@ export function StoreMap({
     );
   }, [destShelf?.id, pinDrop]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pinProps = useAnimatedProps(() => ({
-    transform: `translate(0, ${(1 - pinDrop.value) * -14})`,
+  const pinStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, pinDrop.value * 2),
+    transform: [{ translateY: (1 - pinDrop.value) * -PIN_DROP * unit }],
   }));
 
   return (
     <View style={{ gap: 10 }}>
-      <View style={[styles.mapBox, { borderRadius: theme.radius, backgroundColor: '#FFFFFF' }]}>
+      <View
+        style={[styles.mapBox, { borderRadius: theme.radius, backgroundColor: '#FFFFFF' }]}
+        onLayout={onMapLayout}
+      >
         <Svg style={StyleSheet.absoluteFill} viewBox={`0 0 ${VB_W} ${VB_H}`}>
           <Defs>
             {/* 바닥 타일 */}
@@ -576,7 +589,7 @@ export function StoreMap({
             );
           })}
 
-          {/* 경로 — 흰 테두리를 깔고, 파란 선이 입구부터 그려진다 */}
+          {/* 경로 — 흰 테두리 위에 파란 선. 정적으로 그리고, 움직임은 위를 달리는 카트가 맡는다. */}
           {measured ? (
             <>
               <Path
@@ -588,28 +601,20 @@ export function StoreMap({
                 strokeLinejoin="round"
                 opacity={0.95}
               />
-              <AnimatedPath
+              <Path
                 d={measured.d}
                 fill="none"
                 stroke={colors.primary}
                 strokeWidth={2.4}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeDasharray={measured.total}
-                animatedProps={routeProps}
               />
             </>
           ) : null}
 
-          {/* 현위치 — 펄스 링 + 점 */}
+          {/* 현위치 점 — 퍼지는 펄스 링은 아래 View 오버레이가 그린다 */}
           {showCurrentPin ? (
             <>
-              <AnimatedCircle
-                cx={ENTRANCE.x}
-                cy={ENTRANCE.y}
-                fill={colors.primary}
-                animatedProps={pulseProps}
-              />
               <Circle cx={ENTRANCE.x} cy={ENTRANCE.y} r={6} fill={colors.primary} opacity={0.14} />
               <Circle
                 cx={ENTRANCE.x}
@@ -620,29 +625,6 @@ export function StoreMap({
                 strokeWidth={1}
               />
             </>
-          ) : null}
-
-          {/* 경로를 따라 달리는 카트 — 그룹을 옮기지 않고 원의 cx·cy를 직접 움직인다(위 주석 참고) */}
-          {measured ? (
-            <>
-              <AnimatedCircle r={3.6} fill="#FFFFFF" opacity={0.9} animatedProps={cartPos} />
-              <AnimatedCircle r={2.6} fill={colors.primary} animatedProps={cartPos} />
-              <AnimatedCircle r={0.9} fill="#FFFFFF" animatedProps={cartPos} />
-            </>
-          ) : null}
-
-          {/* 목적지 핀 — 위에서 떨어져 꽂힌다 */}
-          {destShelf ? (
-            <AnimatedG animatedProps={pinProps}>
-              {/* 매대 한가운데에 꽂으면 구역 이름을 가린다 → 상단 모서리에 세운다. */}
-              <Path
-                d={`M${destShelf.cx} ${destShelf.y + 3.4} L${destShelf.cx - 3.2} ${destShelf.y - 2.5} A 3.2 3.2 0 1 1 ${destShelf.cx + 3.2} ${destShelf.y - 2.5} Z`}
-                fill={colors.danger}
-                stroke="#FFFFFF"
-                strokeWidth={0.8}
-              />
-              <Circle cx={destShelf.cx} cy={destShelf.y - 3.2} r={1.15} fill="#FFFFFF" />
-            </AnimatedG>
           ) : null}
 
           {/* 장바구니 담긴 개수 배지 */}
@@ -663,6 +645,83 @@ export function StoreMap({
                 ))
             : null}
         </Svg>
+
+        {/* ── 움직이는 오버레이 — SVG를 다시 그리지 않도록 View transform·opacity로만 움직인다 ── */}
+        {mapWidth > 0 ? (
+          <>
+            {showCurrentPin ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.dot,
+                  {
+                    left: (ENTRANCE.x - PULSE_MAX_R) * unit,
+                    top: (ENTRANCE.y - PULSE_MAX_R) * unit,
+                    width: PULSE_MAX_R * 2 * unit,
+                    height: PULSE_MAX_R * 2 * unit,
+                    borderRadius: PULSE_MAX_R * unit,
+                    backgroundColor: colors.primary,
+                  },
+                  pulseStyle,
+                ]}
+              />
+            ) : null}
+
+            {/* 목적지 핀 — 위에서 떨어져 꽂힌다. 지도와 같은 viewBox의 투명 SVG를 통째로 옮긴다. */}
+            {destShelf ? (
+              <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, pinStyle]}>
+                <Svg style={StyleSheet.absoluteFill} viewBox={`0 0 ${VB_W} ${VB_H}`}>
+                  {/* 매대 한가운데에 꽂으면 구역 이름을 가린다 → 상단 모서리에 세운다. */}
+                  <Path
+                    d={`M${destShelf.cx} ${destShelf.y + 3.4} L${destShelf.cx - 3.2} ${destShelf.y - 2.5} A 3.2 3.2 0 1 1 ${destShelf.cx + 3.2} ${destShelf.y - 2.5} Z`}
+                    fill={colors.danger}
+                    stroke="#FFFFFF"
+                    strokeWidth={0.8}
+                  />
+                  <Circle cx={destShelf.cx} cy={destShelf.y - 3.2} r={1.15} fill="#FFFFFF" />
+                </Svg>
+              </Animated.View>
+            ) : null}
+
+            {/* 경로를 따라 달리는 카트 */}
+            {measured ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.dot,
+                  styles.cart,
+                  {
+                    width: CART_R * 2 * unit,
+                    height: CART_R * 2 * unit,
+                    borderRadius: CART_R * unit,
+                  },
+                  cartStyle,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.cart,
+                    {
+                      width: CART_INNER_R * 2 * unit,
+                      height: CART_INNER_R * 2 * unit,
+                      borderRadius: CART_INNER_R * unit,
+                      backgroundColor: colors.primary,
+                    },
+                  ]}
+                >
+                  <View
+                    style={{
+                      width: CART_DOT_R * 2 * unit,
+                      height: CART_DOT_R * 2 * unit,
+                      borderRadius: CART_DOT_R * unit,
+                      backgroundColor: '#FFFFFF',
+                    }}
+                  />
+                </View>
+              </Animated.View>
+            ) : null}
+          </>
+        ) : null}
 
         {/* 매대 라벨 (SVG 위 RN 오버레이 — 탭 가능하면 Pressable) */}
         {shelves.map((s) => {
@@ -798,6 +857,12 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  dot: { position: 'absolute', left: 0, top: 0 },
+  cart: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
   },
   counterLabel: { position: 'absolute', left: '7%', alignItems: 'flex-start' },
   entranceLabel: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
